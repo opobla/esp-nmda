@@ -13,23 +13,23 @@ config OTA_TIME
     default "3600"
 
 config WIFI_SSID
-    string "SSID"
+    string "WIFI SSID"
     default "my ssid"
 
 config WIFI_PASSWORD
-    string "PASSWORD"
+    string "WIFI PASSWORD"
     default "my password"
 
 config MQTT_HOST
-    string "BROKER"
+    string "MQTT BROKER"
     default "my broker"
 
 config MQTT_PORT
-    string "1883"
+    string "MQTT PORT"
     default "1883"
 
 config MQTT_USER
-    string "MQTT_USER"
+    string "MQTT USER"
     default "my mqtt user"
 
 config MQTT_PASS

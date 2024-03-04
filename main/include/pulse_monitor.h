@@ -9,9 +9,9 @@
 #include "driver/gpio.h"
 #include "driver/pcnt.h"
 
-#define PIN_PULSE_IN_CH1 5
-#define PIN_PULSE_IN_CH2 14
-#define PIN_PULSE_IN_CH3 15
+#define PIN_PULSE_IN_CH1 25
+#define PIN_PULSE_IN_CH2 26
+#define PIN_PULSE_IN_CH3 27
 
 #define ESP_INTR_FLAG_DEFAULT 0
 

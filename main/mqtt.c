@@ -1,6 +1,10 @@
 #include "mqtt.h"
+#include "settings.h"
 
 esp_mqtt_client_handle_t client = NULL;
+
+struct mqtt_settings_t mqtt_settings;
+
 
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -48,12 +52,36 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 }
 
 void mqtt_setup() {
-    ESP_LOGI("MQTT","INIT CLIENT");
+    ESP_LOGI("MQTT_SETUP", "INIT CLIENT");
+    const int buffer_size = 64;
+    char mqtt_host[buffer_size];
+    char mqtt_port[buffer_size];
+    char mqtt_user[buffer_size];
+    char mqtt_pass[buffer_size];
+
+    settings_get_str("mqtt_host", mqtt_host, &buffer_size);
+    settings_get_str("mqtt_port", mqtt_port, &buffer_size);
+    if (settings_get_str("mqtt_user", mqtt_user, &buffer_size) == ESP_OK) {
+        ESP_LOGI("MQTT_SETUP", "MQTT using user %s", mqtt_user);
+    } else {
+        ESP_LOGI("MQTT_SETUP", "MQTT not using user");
+        mqtt_user[0] = '\0';
+    }
+    if (settings_get_str("mqtt_pass", mqtt_pass, &buffer_size) == ESP_OK) {
+        ESP_LOGI("MQTT_SETUP", "MQTT using password %s", "*** hidden ***");
+    } else {
+        ESP_LOGI("MQTT_SETUP", "MQTT not using password");
+        mqtt_pass[0] = '\0';
+    }
+    
+    ESP_LOGI("MQTT_SETUP", "MQTT trying host %s and port %s", mqtt_host, mqtt_port);
+
     esp_mqtt_client_config_t mqttConfig = {
-      .host = CONFIG_MQTT_HOST,
-      //.username = CONFIG_MQTT_USER,
-      //.password = CONFIG_MQTT_PASS,
-      .port = atoi(CONFIG_MQTT_PORT),
+      .broker.address.hostname = mqtt_host,
+      //.credentials.username = mqtt_user,
+      //.credentials.authentication.password = mqtt_pass,
+      .broker.address.port = atoi(mqtt_port),
+      .broker.address.transport = MQTT_TRANSPORT_OVER_TCP,
     };
 
     ESP_LOGI("MSS_SEND", "MQTT initializing");

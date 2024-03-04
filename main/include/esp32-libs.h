@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "nvs_flash.h"
-
+#include "driver/gpio.h"
 
 #include "esp_log.h"
 #include "esp_wifi.h"
@@ -18,5 +18,9 @@
 #include "freertos/semphr.h"
 
 #include "sdkconfig.h"
+
+#ifndef CONFIG_LOG_MAXIMUM_LEVEL
+#define CONFIG_LOG_MAXIMUM_LEVEL 4
+#endif
 
 #endif

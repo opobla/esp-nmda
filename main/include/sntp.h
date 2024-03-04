@@ -5,7 +5,7 @@
 
 #include "esp_sntp.h"
 
-void print_time(long time, const char *message);
+void print_time(const time_t time, const char *message);
 void on_got_time(struct timeval *tv);
 
 #endif

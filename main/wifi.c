@@ -25,7 +25,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 			break;
 		}
 		default: {
-			printf("event_id: %d\n", event_id);
+			printf("event_id: %d\n", (int) event_id);
 			break;
 		}
 	}
@@ -33,7 +33,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 
 void wifi_setup(void) {
 	printf("------------------------------\n");
-	ESP_LOGI("WIFI", "setup init");
+	ESP_LOGI("WIFI", "wifi_setup: starting");
 
 	ESP_ERROR_CHECK(esp_netif_init());
 	ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -45,6 +45,8 @@ void wifi_setup(void) {
 	ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_event_handler,NULL));
 	ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event_handler,NULL));
 	ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+
+	ESP_LOGI("WIFI", "SSID: %s -- PASS: %s", CONFIG_WIFI_SSID, CONFIG_WIFI_PASSWORD);
 
 	wifi_config_t wifi_config = {
         .sta = {
@@ -61,7 +63,7 @@ void wifi_setup(void) {
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
 	ESP_ERROR_CHECK(esp_wifi_start());
 
-	ESP_LOGI("WIFI", "setup finished");
+	ESP_LOGI("WIFI", "wifi_setup: done");
 	printf("------------------------------\n");
 	xSemaphoreTake(wifi_semaphore, portMAX_DELAY);
 }

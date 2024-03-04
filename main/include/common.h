@@ -1,7 +1,13 @@
 #ifndef __COMMON_H__
 #define __COMMON_H__
 
+#ifndef CONFIG_LOG_MAXIMUM_LEVEL
+#define CONFIG_LOG_MAXIMUM_LEVEL 4
+#endif
+
 #include "esp32-libs.h"
+#include "freertos/semphr.h"
+#include "freertos/queue.h"
 
 //METEO
 void task_meteo(void *parameters);
@@ -26,12 +32,12 @@ void sntp_setup(void);
 void mqtt_setup(void);
 
 //QUEUE
-xQueueHandle telemetry_queue;
+extern QueueHandle_t telemetry_queue;
 
 //SEMAPHORE
-xSemaphoreHandle wifi_semaphore;
-xSemaphoreHandle sntp_semaphore;
-xSemaphoreHandle mqtt_semaphore;
-xSemaphoreHandle dtct_semaphore;
+extern SemaphoreHandle_t wifi_semaphore;
+extern SemaphoreHandle_t sntp_semaphore;
+extern SemaphoreHandle_t mqtt_semaphore;
+extern SemaphoreHandle_t dtct_semaphore;
 
 #endif

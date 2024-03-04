@@ -1,6 +1,6 @@
 #include "sntp.h"
 
-void print_time(long time, const char *message) {
+void print_time(const time_t time, const char *message) {
   struct tm *timeinfo = localtime(&time);
   char buffer[50];
 
@@ -13,7 +13,7 @@ void print_time(long time, const char *message) {
 
 void on_got_time(struct timeval *tv) {
     printf("------------------------------\n");
-    printf("secs %ld\n", tv->tv_sec);
+    printf("secs %lld\n", tv->tv_sec);
     print_time(tv->tv_sec, "time at callback");
     xSemaphoreGive(sntp_semaphore);
     ESP_LOGI("SNTP", "sntp_semaphore unlocked");

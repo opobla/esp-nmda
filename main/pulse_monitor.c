@@ -1,7 +1,6 @@
 #include "pulse_monitor.h"
 
-int count_time_secs = 10;
-int32_t count[3] = { 0 };
+
 
 void pulse_counter_init (pcnt_unit_t unit, int pulse_gpio_num) {
     /* Prepare configuration for the PCNT unit */
@@ -43,9 +42,11 @@ int get_and_clear(pcnt_unit_t unit) {
 }
 
 void task_pcnt(void *parameters) {
+    int32_t count_time_secs = 10;
+    int32_t count[3] = { 0 };
     time_t now, time_to_sleep;
 
-    ESP_LOGI("MONITOR", "is running on %d Core", xPortGetCoreID());
+    ESP_LOGI("TASK_PCNT", "Starting on %d Core", xPortGetCoreID());
 
     pulse_counter_init(PCNT_UNIT_0, PIN_PULSE_IN_CH1);
     pulse_counter_init(PCNT_UNIT_1, PIN_PULSE_IN_CH2);
@@ -59,13 +60,13 @@ void task_pcnt(void *parameters) {
     while (true) {
 
     	count[0] = get_and_clear(PCNT_UNIT_0);
-        ESP_LOGI("MONITOR", "CH1: %d pulses per %d secs", count[0], count_time_secs);
+        ESP_LOGI("MONITOR", "CH1: %lu pulses per %lu secs", count[0], count_time_secs);
 
         count[1] = get_and_clear(PCNT_UNIT_1);
-        ESP_LOGI("MONITOR", "CH2: %d pulses per %d secs", count[1], count_time_secs);
+        ESP_LOGI("MONITOR", "CH2: %lu pulses per %lu secs", count[1], count_time_secs);
 
         count[2] = get_and_clear(PCNT_UNIT_2);
-        ESP_LOGI("MONITOR", "CH3: %d pulses per %d secs", count[2], count_time_secs);
+        ESP_LOGI("MONITOR", "CH3: %lu pulses per %lu secs", count[2], count_time_secs);
 
         message.payload.tm_pcnt.integration_time_sec = count_time_secs;
     	message.payload.tm_pcnt.channel[0] = count[0];
@@ -83,7 +84,7 @@ void task_pcnt(void *parameters) {
         for(int i = 0; i < 3; i++)
             count[i] = 0;
 
-        ESP_LOGI("MONITOR", "Sleeping for %ld s", time_to_sleep);
+        ESP_LOGI("MONITOR", "Sleeping for %llu s", time_to_sleep);
         vTaskDelay(time_to_sleep * 1000 / portTICK_RATE_MS);
     }
 }

@@ -58,3 +58,6 @@ build
 secret
 sdkconfig
 sdkconfig.old
+.DS_Store
+*.bin
+main/BMP2-Sensor-API

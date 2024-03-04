@@ -52,6 +52,7 @@ void get_hash(){
     esp_http_client_cleanup(client);
 }
 
+
 void get_binary() {
     ESP_LOGI("OTA","OTA downloading binary");
     esp_http_client_config_t clientConfig = {

@@ -9,4 +9,12 @@
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data);
 
+#ifndef CONFIG_WIFI_SSID
+#define CONFIG_WIFI_SSID "ssid"
+#endif
+
+#ifndef CONFIG_WIFI_PASSWORD
+#define CONFIG_WIFI_PASSWORD "password"
+#endif
+
 #endif
