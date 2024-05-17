@@ -49,6 +49,7 @@ void get_hash(){
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
+    ESP_ERROR_CHECK(err);
     esp_http_client_cleanup(client);
 }
 
@@ -63,7 +64,11 @@ void get_binary() {
         .buffer_size_tx = 24000
     };
 
-    if(esp_https_ota(&clientConfig) == ESP_OK) {
+	esp_https_ota_config_t ota_config = {
+        .http_config = &clientConfig
+    };
+
+    if(esp_https_ota(&ota_config) == ESP_OK) {
         ESP_LOGI("OTA","OTA flash succsessfull.");
         printf("restarting in 5 seconds\n");
         vTaskDelay(pdMS_TO_TICKS(5000));
@@ -76,9 +81,8 @@ void task_ota(void *params) {
     ESP_LOGI("OTA","is running on %d Core", xPortGetCoreID());
     while(check_hash) {
         get_hash();
-        vTaskDelay(10000 / portTICK_RATE_MS);
+        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
-    //get_binary();
     esp_http_client_config_t clientConfig = {
         .url = CONFIG_OTA_URL,
         .event_handler = client_event_handler,
@@ -86,8 +90,11 @@ void task_ota(void *params) {
         .buffer_size = 24000,
         .buffer_size_tx = 24000
     };
+	esp_https_ota_config_t ota_config = {
+        .http_config = &clientConfig
+    };
 
-    if(esp_https_ota(&clientConfig) == ESP_OK) {
+    if(esp_https_ota(&ota_config) == ESP_OK) {
         ESP_LOGI("OTA","OTA flash succsessfull.");
         printf("restarting in 5 seconds\n");
         vTaskDelay(pdMS_TO_TICKS(5000));

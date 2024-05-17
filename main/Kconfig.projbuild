@@ -12,14 +12,6 @@ config OTA_TIME
     string "OTA to verify hash"
     default "3600"
 
-config WIFI_SSID
-    string "WIFI SSID"
-    default "my ssid"
-
-config WIFI_PASSWORD
-    string "WIFI PASSWORD"
-    default "my password"
-
 config MQTT_HOST
     string "MQTT BROKER"
     default "my broker"
@@ -35,5 +27,21 @@ config MQTT_USER
 config MQTT_PASS
     string "MQTT_PASS"
     default "my mqtt pass"
- 
+
+config SPI_MOSI_PIN
+    int "SPI MOSI PIN"
+    default 23
+
+config SPI_MISO_PIN
+    int "SPI MISO PIN"
+    default 19
+
+config SPI_CLK_PIN 
+    int "SPI CLK PIN"
+    default 18
+
+config SPI_SDCARD_CS_PIN
+    int "SPI SDCARD CS PIN"
+    default 5
+
 endmenu

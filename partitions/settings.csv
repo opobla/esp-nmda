@@ -1,7 +1,0 @@
-key,type,encoding,value
-settings,namespace,,
-author,data,string,"Oscar Garcia"
-mqtt_host,data,string,192.168.1.5
-mqtt_port,data,string,1883
-wifi_ssid,data,string,ORCA_BAE
-wifi_pasword,data,string,Antarctica

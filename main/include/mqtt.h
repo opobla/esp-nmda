@@ -5,8 +5,9 @@
 #include "datastructures.h"
 
 #include "mqtt_client.h"
+#include "settings.h"
 
-static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
+void mqtt_setup(nmda_init_config_t* nmda_config);
 void mqtt_send_mss(char* topic, char* mss);
 void mss_sender(void *parameters);
 

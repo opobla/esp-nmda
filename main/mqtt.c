@@ -51,38 +51,30 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
-void mqtt_setup() {
+void mqtt_setup(nmda_init_config_t* nmda_config) {
     ESP_LOGI("MQTT_SETUP", "INIT CLIENT");
-    const int buffer_size = 64;
-    char mqtt_host[buffer_size];
-    char mqtt_port[buffer_size];
-    char mqtt_user[buffer_size];
-    char mqtt_pass[buffer_size];
+    char* mqtt_server = nmda_config->mqtt_server;
+    char* mqtt_port   = nmda_config->mqtt_port;
+    char* mqtt_user   = nmda_config->mqtt_user;
+    char* mqtt_pass   = nmda_config->mqtt_password;
+    char* mqtt_transport = nmda_config->mqtt_transport;
+    char* mqtt_ca_cert   = nmda_config->mqtt_ca_cert;
 
-    settings_get_str("mqtt_host", mqtt_host, &buffer_size);
-    settings_get_str("mqtt_port", mqtt_port, &buffer_size);
-    if (settings_get_str("mqtt_user", mqtt_user, &buffer_size) == ESP_OK) {
-        ESP_LOGI("MQTT_SETUP", "MQTT using user %s", mqtt_user);
-    } else {
-        ESP_LOGI("MQTT_SETUP", "MQTT not using user");
-        mqtt_user[0] = '\0';
-    }
-    if (settings_get_str("mqtt_pass", mqtt_pass, &buffer_size) == ESP_OK) {
-        ESP_LOGI("MQTT_SETUP", "MQTT using password %s", "*** hidden ***");
-    } else {
-        ESP_LOGI("MQTT_SETUP", "MQTT not using password");
-        mqtt_pass[0] = '\0';
-    }
-    
-    ESP_LOGI("MQTT_SETUP", "MQTT trying host %s and port %s", mqtt_host, mqtt_port);
+    ESP_LOGI("MQTT_SETUP", "MQTT trying transport %s host %s and port %s", mqtt_transport, mqtt_server, mqtt_port);
+    ESP_LOGI("MQTT_SETUP", "MQTT trying certificate %s", mqtt_ca_cert);
 
-    esp_mqtt_client_config_t mqttConfig = {
-      .broker.address.hostname = mqtt_host,
-      //.credentials.username = mqtt_user,
-      //.credentials.authentication.password = mqtt_pass,
-      .broker.address.port = atoi(mqtt_port),
-      .broker.address.transport = MQTT_TRANSPORT_OVER_TCP,
-    };
+    esp_mqtt_client_config_t mqttConfig = {};
+    if (strcmp(mqtt_transport, "mqtt") == 0) {
+        mqttConfig.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
+    } else {
+        mqttConfig.broker.address.transport = MQTT_TRANSPORT_OVER_SSL;
+    }
+
+    mqttConfig.broker.address.hostname = mqtt_server;
+    mqttConfig.broker.address.port = atoi(mqtt_port);
+    mqttConfig.credentials.username = mqtt_user;
+    mqttConfig.credentials.authentication.password = mqtt_pass;
+    mqttConfig.broker.verification.certificate = mqtt_ca_cert;
 
     ESP_LOGI("MSS_SEND", "MQTT initializing");
     client = esp_mqtt_client_init(&mqttConfig);

@@ -1,37 +1,39 @@
 #include "mqtt.h"
 
-# define STATION  "orca"
-# define EXPERIMENT "nemo"
-# define DEVICE "bp28-nemo"
-# define SLASH "/"
+#define TAG "MSS_SEND"
 
-# define BASE_TOPIC STATION SLASH EXPERIMENT SLASH DEVICE
 
 void mss_sender(void *parameters) {
 	struct telemetry_message message;
     int64_t last_event_time = 0;
-
+    nmda_init_config_t* nmda_config = (nmda_init_config_t*) parameters;
+    char topic_base[80];
+    char topic_status[80 + strlen("status") + 1];
+    char topic_pcnt[80 + strlen("pcnt") + 1];
+    char topic_detect[80 + strlen("detect") + 1];
+    char topic_timesync[80 + strlen("timesync") + 1];
+    char* station = nmda_config->mqtt_station;
+    char* experiment = nmda_config->mqtt_experiment;
+    char* device = nmda_config->mqtt_device_id;
 
 	ESP_LOGI("MSS_SEND", "is running on %d Core", xPortGetCoreID());
 
-	mqtt_setup();
-	mqtt_send_mss("test", "esp32 connected");
+    sprintf(topic_base, "%s/%s/%s", station, experiment, device);
+    sprintf(topic_status, "%s/status", topic_base);
+    sprintf(topic_pcnt, "%s/pcnt", topic_base);
+    sprintf(topic_detect, "%s/detect", topic_base);
+    sprintf(topic_timesync, "%s/timesync", topic_base);
+
+	ESP_LOGI(TAG, "Topic base: %s", topic_base);
+
+	mqtt_setup(nmda_config);
+	mqtt_send_mss(topic_status, "mss_sender is running");
 
 	while(true) {
 		if (xQueueReceive(telemetry_queue, &message, portMAX_DELAY)) {
 		    char buffer[500];
-            char full_topic[80];
 		    switch (message.tm_message_type) {
 			case TM_METEO:
-                sprintf(buffer, "{ \"datetime\": \"%lld\", \"temp_c\": \"%.2f\", \"atmpres_Pa\": \"%lu\" }",
-                        message.timestamp,
-                        message.payload.tm_meteo.temperature_celsius,
-                        message.payload.tm_meteo.atm_pressure_hpas
-                );
-
-                sprintf(full_topic, "%s/meteo", BASE_TOPIC);
-		        mqtt_send_mss(full_topic, buffer);
-		        ESP_LOGI("MSS_SEND", "Publishing METEO");
 			    break;
 
 			case TM_PULSE_COUNT:
@@ -43,9 +45,8 @@ void mss_sender(void *parameters) {
                     message.payload.tm_pcnt.integration_time_sec
                 );
 
-                sprintf(full_topic, "%s/pcnt", BASE_TOPIC);
-		        mqtt_send_mss(full_topic, buffer);
-		        ESP_LOGI("MSS_SEND", "Publishing PULSECOUNT on %s", full_topic);
+		        mqtt_send_mss(topic_pcnt, buffer);
+		        ESP_LOGI(TAG, "Publishing PULSECOUNT on %s", topic_pcnt);
 			    break;
 
             case TM_PULSE_DETECTION:
@@ -55,7 +56,7 @@ void mss_sender(void *parameters) {
                     message.payload.tm_detect.channel[1],
                     message.payload.tm_detect.channel[2]
                 );
-		        ESP_LOGI("MSS_SEND", "Publishing DETECTOR %lu,%lu,%lu at %llu delta %llu",
+		        ESP_LOGI(TAG, "Publishing DETECTOR %lu,%lu,%lu at %llu delta %llu",
                     message.payload.tm_detect.channel[0],
                     message.payload.tm_detect.channel[1],
                     message.payload.tm_detect.channel[2],
@@ -63,18 +64,16 @@ void mss_sender(void *parameters) {
                     message.timestamp - last_event_time
                 );
                 last_event_time = message.timestamp;
-                sprintf(full_topic, "%s/detect", BASE_TOPIC);
-		        mqtt_send_mss(full_topic, buffer);
+		        mqtt_send_mss(topic_detect, buffer);
 			    break;
-
 
             case TM_TIME_SYNCHRONIZER:
                 sprintf(buffer, "{ \"datetime\": \"%lld\", \"cpu_lnd\": \"%lu\" }",
                     message.timestamp,
                     message.payload.tm_sync.cpu_count
                 );
-                sprintf(full_topic, "%s/sync", BASE_TOPIC);
-		        mqtt_send_mss(full_topic, buffer);
+                ESP_LOGI(TAG, "Publishing TIME_SYNC on %s", topic_timesync);
+		        mqtt_send_mss(topic_timesync, buffer);
                 break;
 
 			default:

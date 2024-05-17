@@ -20,11 +20,12 @@ void on_got_time(struct timeval *tv) {
     printf("------------------------------\n");
 }
 
-void sntp_setup(void) {
+void ntp_setup(nmda_init_config_t* nmda_config) {
     ESP_LOGI("SNTP", "setup init");
     sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_init();
+    esp_sntp_setservername(0, nmda_config->wifi_ntp_server);
+    ESP_LOGI("SNTP", "server: %s", nmda_config->wifi_ntp_server);
+    esp_sntp_init();
     sntp_set_time_sync_notification_cb(on_got_time);
     ESP_LOGI("SNTP", "setup finished");
     xSemaphoreTake(sntp_semaphore, portMAX_DELAY);

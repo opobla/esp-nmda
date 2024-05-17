@@ -1,4 +1,5 @@
 #include "wifi.h"
+#include "settings.h"
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
 	switch (event_id) {
@@ -13,7 +14,9 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 		}
 		case WIFI_EVENT_STA_DISCONNECTED: {
 			ESP_LOGI("WIFI","disconnected trying to reconect in %d seconds", time_to_reconect);
-			vTaskDelay(time_to_reconect * 1000 / portTICK_RATE_MS);
+			wifi_event_sta_disconnected_t* event = (wifi_event_sta_disconnected_t*) event_data;
+			ESP_LOGI("WIFI","disconnected reason: %d", event->reason);
+			vTaskDelay(time_to_reconect * 5000 / portTICK_PERIOD_MS);
             esp_restart();
 			break;
 		}
@@ -31,8 +34,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 	}
 }
 
-void wifi_setup(void) {
-	printf("------------------------------\n");
+void wifi_setup(nmda_init_config_t* nmda_config) {
+
 	ESP_LOGI("WIFI", "wifi_setup: starting");
 
 	ESP_ERROR_CHECK(esp_netif_init());
@@ -46,19 +49,29 @@ void wifi_setup(void) {
 	ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event_handler,NULL));
 	ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
-	ESP_LOGI("WIFI", "SSID: %s -- PASS: %s", CONFIG_WIFI_SSID, CONFIG_WIFI_PASSWORD);
-
 	wifi_config_t wifi_config = {
-        .sta = {
-          .ssid = CONFIG_WIFI_SSID,
-          .password = CONFIG_WIFI_PASSWORD,
-          .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-          .pmf_cfg = {
-              .capable = true,
-              .required = false
-          },
-        }
+		.sta = {
+			.ssid = {0},
+			.password = {0},
+			.scan_method = (wifi_scan_method_t)0,
+			.bssid_set = false,
+			.bssid = {0},
+			.channel = 0,
+			.listen_interval = 0,
+			.sort_method = (wifi_sort_method_t)0,
+			.threshold = {0, (wifi_auth_mode_t)0}},
 	};
+	memset(&wifi_config, 0, sizeof(wifi_config));
+
+	strcpy((char*)wifi_config.sta.ssid,     nmda_config->wifi_essid);
+	strcpy((char*)wifi_config.sta.password, nmda_config->wifi_password);
+	ESP_LOGI("WIFI", "wifi_essid: |%s|", wifi_config.sta.ssid);
+	ESP_LOGI("WIFI", "wifi_password: |%s|", wifi_config.sta.password);
+
+	wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+	wifi_config.sta.pmf_cfg.capable = true;
+	wifi_config.sta.pmf_cfg.required = false;
+
 	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
 	ESP_ERROR_CHECK(esp_wifi_start());

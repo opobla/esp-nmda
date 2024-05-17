@@ -85,6 +85,6 @@ void task_pcnt(void *parameters) {
             count[i] = 0;
 
         ESP_LOGI("MONITOR", "Sleeping for %llu s", time_to_sleep);
-        vTaskDelay(time_to_sleep * 1000 / portTICK_RATE_MS);
+        vTaskDelay(time_to_sleep * 1000 / portTICK_PERIOD_MS);
     }
 }

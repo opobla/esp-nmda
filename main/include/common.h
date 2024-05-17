@@ -9,9 +9,6 @@
 #include "freertos/semphr.h"
 #include "freertos/queue.h"
 
-//METEO
-void task_meteo(void *parameters);
-
 //OTA
 void task_ota(void *parameters);
 
@@ -27,9 +24,6 @@ void task_detection(void *parameters);
 
 //SET UP
 void init_GPIO(void);
-void wifi_setup(void);
-void sntp_setup(void);
-void mqtt_setup(void);
 
 //QUEUE
 extern QueueHandle_t telemetry_queue;
