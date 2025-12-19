@@ -4,7 +4,8 @@
 #include "nvs.h"
 #include "settings.h"
 #include "ini.h"
-#include "string.h"
+#include <string.h>
+#include <stdlib.h>
 #include "sdcard.h"
 
 #define TAG "SETTINGS"
@@ -56,19 +57,19 @@ int nmda_init_handler(void* config_struct, const char* section, const char* name
 }
 
 void print_nmda_init_config(nmda_init_config_t* config_struct) {
-    ESP_LOGI(TAG, "---- CONFIG FROM INI FILE ----\n");
-    ESP_LOGI(TAG, "wifi_essid: %s\n", config_struct->wifi_essid);
-    ESP_LOGI(TAG, "wifi_password: %s\n", config_struct->wifi_password);
-    ESP_LOGI(TAG, "wifi_ntp_server: %s\n", config_struct->wifi_ntp_server);
-    ESP_LOGI(TAG, "mqtt_server: %s\n", config_struct->mqtt_server);
-    ESP_LOGI(TAG, "mqtt_trasnport: %s\n", config_struct->mqtt_transport);
-    ESP_LOGI(TAG, "mqtt_port: %s\n", config_struct->mqtt_port);
-    ESP_LOGI(TAG, "mqtt_user: %s\n", config_struct->mqtt_user);
-    ESP_LOGI(TAG, "mqtt_password: %s\n", config_struct->mqtt_password);
-    ESP_LOGI(TAG, "mqtt_ca_cert: %s\n", config_struct->mqtt_ca_cert);
-    ESP_LOGI(TAG, "mqtt_station: %s\n", config_struct->mqtt_station);
-    ESP_LOGI(TAG, "mqtt_experiment: %s\n", config_struct->mqtt_experiment);
-    ESP_LOGI(TAG, "mqtt_device_id: %s\n", config_struct->mqtt_device_id);
+    ESP_LOGI(TAG, "---- CONFIG ----\n");
+    ESP_LOGI(TAG, "wifi_essid: %s\n", config_struct->wifi_essid ? config_struct->wifi_essid : "(null)");
+    ESP_LOGI(TAG, "wifi_password: %s\n", config_struct->wifi_password ? config_struct->wifi_password : "(null)");
+    ESP_LOGI(TAG, "wifi_ntp_server: %s\n", config_struct->wifi_ntp_server ? config_struct->wifi_ntp_server : "(null)");
+    ESP_LOGI(TAG, "mqtt_server: %s\n", config_struct->mqtt_server ? config_struct->mqtt_server : "(null)");
+    ESP_LOGI(TAG, "mqtt_transport: %s\n", config_struct->mqtt_transport ? config_struct->mqtt_transport : "(null)");
+    ESP_LOGI(TAG, "mqtt_port: %s\n", config_struct->mqtt_port ? config_struct->mqtt_port : "(null)");
+    ESP_LOGI(TAG, "mqtt_user: %s\n", config_struct->mqtt_user ? config_struct->mqtt_user : "(null)");
+    ESP_LOGI(TAG, "mqtt_password: %s\n", config_struct->mqtt_password ? config_struct->mqtt_password : "(null)");
+    ESP_LOGI(TAG, "mqtt_ca_cert: %s\n", config_struct->mqtt_ca_cert ? config_struct->mqtt_ca_cert : "(null)");
+    ESP_LOGI(TAG, "mqtt_station: %s\n", config_struct->mqtt_station ? config_struct->mqtt_station : "(null)");
+    ESP_LOGI(TAG, "mqtt_experiment: %s\n", config_struct->mqtt_experiment ? config_struct->mqtt_experiment : "(null)");
+    ESP_LOGI(TAG, "mqtt_device_id: %s\n", config_struct->mqtt_device_id ? config_struct->mqtt_device_id : "(null)");
 }
 
 int init_nvs() {
@@ -90,68 +91,111 @@ int load_settings_from_sdcard(nmda_init_config_t * nmda_config) {
     // the SD card.
     if (init_sd_card() != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SD card");
-    } else {
-        ESP_LOGI(TAG, "SD card initialized");
-        // Try to find a file named "nmda.ini" and parse it.
-        if (ini_parse("/sdcard/nmda.ini", nmda_init_handler, nmda_config) < 0) {
-            ESP_LOGW("APP_MAIN", "Can't load 'nmda.ini'\n");
-            return ESP_FAIL;
-        }
+        return ESP_FAIL;
     }
+    
+    ESP_LOGI(TAG, "SD card initialized");
+    // Try to find a file named "nmda.ini" and parse it.
+    if (ini_parse("/sdcard/nmda.ini", nmda_init_handler, nmda_config) < 0) {
+        ESP_LOGW(TAG, "Can't load 'nmda.ini'");
+        return ESP_FAIL;
+    }
+    
     return ESP_OK;
 }
 
-int load_settings_from_nvs() {
+esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
     esp_err_t err;
+    char buffer[256];
+    size_t buffer_size;
     
-    ESP_LOGI("LOAD_SETTING_FROM_NVS", "Loading settings from NVS");
+    ESP_LOGI(TAG, "Loading settings from NVS");
     err = nvs_flash_init_partition(NVS_PARTITION_NAME);
     if (err != ESP_OK) {
-        printf("Error initializing NVS: %s\n", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Error initializing NVS partition: %s", esp_err_to_name(err));
         return err;
     }
 
     err = nvs_open_from_partition(NVS_PARTITION_NAME, "settings", NVS_READONLY, &my_nvs_handle);
     if (err != ESP_OK) {
-        ESP_LOGE("LOAD_SETTING_FROM_NVS", "Error (%s) opening NVS handle!\n", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
+        return err;
     }
-    /**
-    settings_get_str("wifi_ssid", ssid, &buffer_size);
-    settings_get_str("wifi_pass", password, &buffer_size2);
-	ESP_LOGI("WIFI", "SSID: %s(%d) -- PASS: %s(%d)", ssid, buffer_size, password, buffer_size2);
-    */
 
-    return 0;
+    // Helper macro to safely free and duplicate string
+    #define LOAD_AND_SET(key, field) do { \
+        buffer_size = sizeof(buffer); \
+        if (settings_get_str(key, buffer, &buffer_size) == 0) { \
+            if (nmda_config->field && strcmp(nmda_config->field, "default") != 0) { \
+                free(nmda_config->field); \
+            } \
+            nmda_config->field = strdup(buffer); \
+            ESP_LOGI(TAG, "Loaded %s: %s", key, nmda_config->field); \
+        } else { \
+            ESP_LOGW(TAG, "Failed to load %s from NVS, keeping default", key); \
+        } \
+    } while(0)
+
+    // Load WiFi settings
+    LOAD_AND_SET("wifi_ssid", wifi_essid);
+    LOAD_AND_SET("wifi_pasword", wifi_password);
+    LOAD_AND_SET("wifi_ntp_server", wifi_ntp_server);
+
+    // Load MQTT settings
+    LOAD_AND_SET("mqtt_host", mqtt_server);
+    LOAD_AND_SET("mqtt_port", mqtt_port);
+    LOAD_AND_SET("mqtt_user", mqtt_user);
+    LOAD_AND_SET("mqtt_password", mqtt_password);
+    LOAD_AND_SET("mqtt_station", mqtt_station);
+    LOAD_AND_SET("mqtt_experiment", mqtt_experiment);
+    LOAD_AND_SET("mqtt_device_id", mqtt_device_id);
+    
+    #undef LOAD_AND_SET
+
+    nvs_close(my_nvs_handle);
+    ESP_LOGI(TAG, "Settings loaded from NVS");
+    return ESP_OK;
 }
 
 int settings_get_str(const char * key, char * value, size_t* max_length) {
     esp_err_t err;
+    size_t original_size = *max_length;
     
     err = nvs_get_str(my_nvs_handle, key, value, max_length);
     if (err == ESP_OK) {
         // Successfully read the string from NVS
-        ESP_LOGD(TAG, "Key %s Value: %s\n", key, value);
+        // max_length now contains the actual length including null terminator
+        ESP_LOGI(TAG, "Key '%s' loaded: '%s' (length: %zu)", key, value, *max_length);
+        return 0;
+    } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Key '%s' not found in NVS", key);
+        *max_length = original_size; // Restore original size
+        return err;
     } else {
-        ESP_LOGE(TAG, "Error (%s) reading!\n", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Error reading key '%s': %s", key, esp_err_to_name(err));
+        *max_length = original_size; // Restore original size
         return err;
     }
-    return 0;
 }
 
 esp_err_t load_nmda_settings(nmda_init_config_t* nmda_config) {
     esp_err_t err;
 
+    // Try to load settings from SD card first
     err = load_settings_from_sdcard(nmda_config);
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Settings loaded from SD card");
         return ESP_OK;
     }
+    
     // If we can't load the settings from the SD card, try to load them from the NVS
-
-    err = load_settings_from_nvs();
-    if (err != ESP_OK) {
-        ESP_LOGE("LOAD_SETTING_FROM_NVS", "Error loading settings from NVS");
-        return err;
+    ESP_LOGI(TAG, "SD card load failed, trying NVS");
+    err = load_settings_from_nvs(nmda_config);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Settings loaded from NVS");
+        return ESP_OK;
     }
+    
+    ESP_LOGW(TAG, "Failed to load settings from both SD card and NVS, using defaults");
     return ESP_FAIL;
 }
