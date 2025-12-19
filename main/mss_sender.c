@@ -12,9 +12,17 @@ void mss_sender(void *parameters) {
     char topic_pcnt[80 + strlen("pcnt") + 1];
     char topic_detect[80 + strlen("detect") + 1];
     char topic_timesync[80 + strlen("timesync") + 1];
+#ifdef CONFIG_ENABLE_SPL06
+    char topic_spl06[80 + strlen("spl06") + 1];
+#endif
     char* station = nmda_config->mqtt_station;
     char* experiment = nmda_config->mqtt_experiment;
     char* device = nmda_config->mqtt_device_id;
+
+    // Check for NULL pointers and use defaults if needed
+    if (!station) station = "default";
+    if (!experiment) experiment = "default";
+    if (!device) device = "default";
 
 	ESP_LOGI("MSS_SEND", "is running on %d Core", xPortGetCoreID());
 
@@ -23,6 +31,9 @@ void mss_sender(void *parameters) {
     sprintf(topic_pcnt, "%s/pcnt", topic_base);
     sprintf(topic_detect, "%s/detect", topic_base);
     sprintf(topic_timesync, "%s/timesync", topic_base);
+#ifdef CONFIG_ENABLE_SPL06
+    sprintf(topic_spl06, "%s/spl06", topic_base);
+#endif
 
 	ESP_LOGI(TAG, "Topic base: %s", topic_base);
 
@@ -75,6 +86,19 @@ void mss_sender(void *parameters) {
                 ESP_LOGI(TAG, "Publishing TIME_SYNC on %s", topic_timesync);
 		        mqtt_send_mss(topic_timesync, buffer);
                 break;
+
+#ifdef CONFIG_ENABLE_SPL06
+            case TM_SPL06:
+                sprintf(buffer, "{ \"datetime\": \"%lld\", \"pressure_pa\": \"%.2f\", \"pressure_hpa\": \"%.2f\", \"temperature_celsius\": \"%.2f\" }",
+                    message.timestamp,
+                    message.payload.tm_spl06.pressure_pa,
+                    message.payload.tm_spl06.pressure_hpa,
+                    message.payload.tm_spl06.temperature_celsius
+                );
+                ESP_LOGI(TAG, "Publishing SPL06 on %s", topic_spl06);
+                mqtt_send_mss(topic_spl06, buffer);
+                break;
+#endif
 
 			default:
 			    break;

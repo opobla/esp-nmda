@@ -60,8 +60,13 @@ void mqtt_setup(nmda_init_config_t* nmda_config) {
     char* mqtt_transport = nmda_config->mqtt_transport;
     char* mqtt_ca_cert   = nmda_config->mqtt_ca_cert;
 
+    // Check for NULL pointers before using them
+    if (!mqtt_transport) mqtt_transport = "mqtt";
+    if (!mqtt_server) mqtt_server = "unknown";
+    if (!mqtt_port) mqtt_port = "unknown";
+
     ESP_LOGI("MQTT_SETUP", "MQTT trying transport %s host %s and port %s", mqtt_transport, mqtt_server, mqtt_port);
-    ESP_LOGI("MQTT_SETUP", "MQTT trying certificate %s", mqtt_ca_cert);
+    ESP_LOGI("MQTT_SETUP", "MQTT trying certificate %s", mqtt_ca_cert ? mqtt_ca_cert : "(null)");
 
     esp_mqtt_client_config_t mqttConfig = {};
     if (strcmp(mqtt_transport, "mqtt") == 0) {
