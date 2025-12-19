@@ -22,6 +22,11 @@ void mss_sender(void *parameters);
 void task_pcnt(void *parameters);
 void task_detection(void *parameters);
 
+//SPL06
+#ifdef CONFIG_ENABLE_SPL06
+void spl06_monitor_task(void *parameters);
+#endif
+
 //SET UP
 void init_GPIO(void);
 
