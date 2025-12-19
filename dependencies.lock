@@ -1,15 +1,21 @@
 dependencies:
   idf:
-    component_hash: null
     source:
       type: idf
     version: 5.4.0
   leeebo/esp-inih:
     component_hash: a2ecd9643d4cf7b3592645579d6ecf0f5c4f07f8ca8f9bafeb1d0f89fd005f38
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4'
     source:
-      service_url: https://api.components.espressif.com/
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.0.2
-manifest_hash: 3c9ed49d26ecf6fabe663fac0db07bcbad8f2ccf2b570341e0b8e200e10d5927
+direct_dependencies:
+- idf
+- leeebo/esp-inih
+manifest_hash: 5fa176e727c492b1bfd5319ebe7e8e66ff234d8c6d0d14385e89822e74442bb7
 target: esp32
-version: 1.0.0
+version: 2.0.0
