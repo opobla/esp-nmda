@@ -22,11 +22,26 @@ void on_got_time(struct timeval *tv) {
 
 void ntp_setup(nmda_init_config_t* nmda_config) {
     ESP_LOGI("SNTP", "setup init");
+    
+    // Check if NTP server is valid (not "default")
+    if (nmda_config->wifi_ntp_server == NULL || 
+        strcmp(nmda_config->wifi_ntp_server, "default") == 0) {
+        ESP_LOGW("SNTP", "NTP server is 'default', skipping SNTP sync");
+        ESP_LOGI("SNTP", "setup finished (skipped)");
+        return;
+    }
+    
     sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
     esp_sntp_setservername(0, nmda_config->wifi_ntp_server);
     ESP_LOGI("SNTP", "server: %s", nmda_config->wifi_ntp_server);
     esp_sntp_init();
     sntp_set_time_sync_notification_cb(on_got_time);
-    ESP_LOGI("SNTP", "setup finished");
-    xSemaphoreTake(sntp_semaphore, portMAX_DELAY);
+    ESP_LOGI("SNTP", "setup finished, waiting for time sync...");
+    
+    // Wait for time sync with timeout (30 seconds)
+    if (xSemaphoreTake(sntp_semaphore, pdMS_TO_TICKS(30000)) == pdTRUE) {
+        ESP_LOGI("SNTP", "Time synchronized successfully");
+    } else {
+        ESP_LOGW("SNTP", "Time sync timeout, continuing without sync");
+    }
 }
