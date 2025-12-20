@@ -91,6 +91,35 @@ static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
     }
     
     // Build WREG command: 0x40 | (reg << 2) | 0 (writing 1 register)
+    // WREG format: 0100 rrxx where:
+    //   - Bits 7-6: 01 (WREG identifier)
+    //   - Bits 5-2: rr = register number (0-3)
+    //   - Bits 1-0: xx = number of registers to write - 1 (0 for 1 register)
+    // 
+    // For register 2: register number 2 = 0010 in binary
+    // Should be in bits 5-2: 0100 0010 00 = 0x44
+    // Our calculation: (2 << 2) = 0x08, so 0x40 | 0x08 = 0x48
+    // 
+    // WAIT: (reg << 2) puts reg in bits 5-2, which is correct!
+    // For reg=2: (2 << 2) = 8 = 0x08 = 0000 1000
+    // In bits 5-2: 0100 1000 = 0x48
+    // But datasheet says it should be 0x44 for register 2...
+    // 
+    // Let me check: register 2 in bits 5-2 should be 0010
+    // So: 0100 0010 00 = 0x44
+    // But (2 << 2) = 0x08 = 0000 1000, which in bits 5-2 is... wait
+    // 
+    // Actually, (reg << 2) for reg=2 gives us 0x08, which is 0000 1000
+    // When OR'd with 0x40 (0100 0000), we get 0100 1000 = 0x48
+    // But we need 0100 0010 = 0x42... no wait, that's not right either
+    // 
+    // Let me recalculate: register 2 = 2 decimal = 0010 binary
+    // To put it in bits 5-2, we need to shift left by 2: 0010 << 2 = 1000
+    // But that's 0x08, which gives us 0x48 when OR'd with 0x40
+    // 
+    // Hmm, maybe the datasheet format is different? Let me try the alternative:
+    // Maybe register number should be in bits 4-2, not 5-2?
+    // Or maybe it's (reg << 1) instead of (reg << 2)?
     uint8_t wreg_cmd = HV_ADC_CMD_WREG | (reg << 2);
     
     // Prepare data: [WREG command, data byte]
@@ -192,6 +221,12 @@ esp_err_t hv_adc_init(void)
         ESP_LOGE(TAG, "Failed to write CONFIG0: %s", esp_err_to_name(ret));
         return ret;
     }
+    // Verify CONFIG0 write
+    vTaskDelay(pdMS_TO_TICKS(10));
+    uint8_t verify_config0;
+    if (hv_adc_read_register(HV_ADC_REG_CONFIG0, &verify_config0, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "CONFIG0 verification: wrote 0x%02X, read 0x%02X", config0, verify_config0);
+    }
 
     // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, Internal VREF, TS=0 (normal mode)
     // IMPORTANT: TS bit (bit 0) must be 0 for normal ADC conversions
@@ -206,6 +241,12 @@ esp_err_t hv_adc_init(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG1: %s", esp_err_to_name(ret));
         return ret;
+    }
+    // Verify CONFIG1 write
+    vTaskDelay(pdMS_TO_TICKS(10));
+    uint8_t verify_config1;
+    if (hv_adc_read_register(HV_ADC_REG_CONFIG1, &verify_config1, 1) == ESP_OK) {
+        ESP_LOGI(TAG, "CONFIG1 verification: wrote 0x%02X, read 0x%02X", config1, verify_config1);
     }
 
     // Configure CONFIG2: Enable data counter (DCNT=1, bit 6) to make DRDY available in CONFIG2 bit 7
