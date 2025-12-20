@@ -489,9 +489,10 @@ esp_err_t hv_adc_read_result(int16_t *raw_value)
 
     // Use RDATA command to read conversion result
     // According to datasheet section 8.5.3.5, RDATA requires:
-    // 1. First frame: I2C write with RDATA command (0x10) - START, address+W, 0x10, STOP
-    // 2. Second frame: I2C read to get 2 bytes - START (repeated), address+R, data[MSB], ACK, data[LSB], NACK, STOP
-    // We use i2c_bus_write_read for this combined operation
+    // 1. First frame: I2C write with RDATA command (0x10) - START, address+W, 0x10
+    // 2. Second frame: I2C read to get 2 bytes - REPEATED START (not STOP+START), address+R, data[MSB], ACK, data[LSB], NACK, STOP
+    // CRITICAL: ADS112C04 requires Repeated Start - if STOP is sent, it discards the RDATA command
+    // We MUST use i2c_bus_write_read_repeated_start() to guarantee Repeated Start
     uint8_t rdata_cmd = 0x10;
     uint8_t data[2] = {0, 0};
     
@@ -504,7 +505,9 @@ esp_err_t hv_adc_read_result(int16_t *raw_value)
                  config2_before_read, (config2_before_read & 0x80) ? 1 : 0);
     }
     
-    esp_err_t ret = i2c_bus_write_read(HV_ADC_I2C_ADDR, &rdata_cmd, 1, data, 2, 1000);
+    // CRITICAL: Use write_read_repeated_start to guarantee Repeated Start condition
+    // This uses i2c_master_transmit_receive() which guarantees Repeated Start
+    esp_err_t ret = i2c_bus_write_read_repeated_start(HV_ADC_I2C_ADDR, &rdata_cmd, 1, data, 2, 1000);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read ADC result (RDATA): %s", esp_err_to_name(ret));
         return ret;
