@@ -150,6 +150,7 @@ esp_err_t hv_adc_init(void)
 
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "Initializing HV ADC (ADS112C04)");
+    ESP_LOGI(TAG, "Driver Version: v2.0 - WREG/RREG + DCNT fix");
     ESP_LOGI(TAG, "I2C Address: 0x%02X", HV_ADC_I2C_ADDR);
     ESP_LOGI(TAG, "========================================");
 
@@ -217,6 +218,7 @@ esp_err_t hv_adc_init(void)
     // - Bit 3: BCS = 0 (burn-out current sources off)
     // - Bits 2-0: IDAC current setting (000 = off)
     uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
+    ESP_LOGI(TAG, "Writing CONFIG2: 0x%02X (DCNT=1, DRDY polling enabled)", config2);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG2: %s", esp_err_to_name(ret));
@@ -266,6 +268,13 @@ esp_err_t hv_adc_init(void)
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "Full configuration: CONFIG0=0x%02X, CONFIG1=0x%02X, CONFIG2=0x%02X, CONFIG3=0x%02X",
                  read_config0, read_config1, read_config2, read_config3);
+        
+        // Version check marker - verify CONFIG2 has DCNT bit set
+        if (read_config2 == 0x40) {
+            ESP_LOGI(TAG, "✓ CONFIG2 VERIFIED: DCNT=1, DRDY polling enabled (v2.0 active)");
+        } else {
+            ESP_LOGW(TAG, "✗ CONFIG2 MISMATCH: Expected 0x40, got 0x%02X (old version?)", read_config2);
+        }
     }
 
     // Mark ADC as initialized BEFORE sending START/SYNC (needed for hv_adc_start_conversion check)
