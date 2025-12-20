@@ -1,0 +1,11 @@
+# Name,       Type, SubType, Offset,   Size,  Flags
+# Partition table for 4MB flash
+# Optimized from 8MB version to fit in 4MB
+# Note: App partitions must be aligned to 64KB (0x10000)
+nvs,          data, nvs,     0x9000,   0x6000
+otadata,      data, ota,     0xF000,   0x2000
+phy_init,     data, phy,     0x11000,  0x1000
+factory,      app,  factory, 0x20000,  0x1E0000
+ota_0,        app,  ota_0,   0x200000, 0x1E0000
+nvs_settings, data, nvs,     0x3E0000, 0x20000
+
