@@ -3,6 +3,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "mqtt.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -58,6 +59,12 @@ void app_main(void)
     ESP_LOGI("APP_MAIN", "Initializing GPIO...");
     init_GPIO();
     ESP_LOGI("APP_MAIN", "GPIO initialized");
+
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+    // Temporary: Enable DEBUG logging for HV_ADC to diagnose conversion issues
+    esp_log_level_set("HV_ADC", ESP_LOG_DEBUG);
+    ESP_LOGI("APP_MAIN", "DEBUG logging enabled for HV_ADC (temporary)");
+#endif
 
     ESP_LOGI("APP_MAIN", "Checking I2C and SPL06 configuration...");
     ESP_LOGI("APP_MAIN", "CONFIG_ENABLE_I2C_BUS: %s", 

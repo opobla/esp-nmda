@@ -29,7 +29,21 @@ static bool calib_loaded = false;
 
 static esp_err_t spl06_read_register(uint8_t reg, uint8_t *data, size_t len)
 {
-    return i2c_bus_read(SPL06_I2C_ADDR, &reg, 1, data, len, 1000);
+    esp_err_t ret = i2c_bus_read(SPL06_I2C_ADDR, &reg, 1, data, len, 1000);
+    
+    // Debug: log register reads for temperature registers
+    if (reg >= SPL06_REG_TMP_B2 && reg <= SPL06_REG_TMP_B0 && len <= 3) {
+        static int reg_debug_count = 0;
+        if (reg_debug_count < 3) {
+            ESP_LOGI(TAG, "Read register 0x%02X: ", reg);
+            for (size_t i = 0; i < len; i++) {
+                ESP_LOGI(TAG, "  data[%d]=0x%02X", i, data[i]);
+            }
+            reg_debug_count++;
+        }
+    }
+    
+    return ret;
 }
 
 static esp_err_t spl06_write_register(uint8_t reg, uint8_t data)
@@ -145,16 +159,28 @@ esp_err_t spl06_init(void)
     ESP_LOGI(TAG, "Temperature configured: Rate=4, PRC=8");
 
     // Configure measurement: continuous pressure and temperature
-    // MEAS_CFG: Continuous mode, measure both pressure and temperature
+    // MEAS_CFG: Continuous mode (0x07 = measure both pressure and temperature continuously)
+    // Note: According to datasheet, 0x07 means:
+    //   - Bit 0-2: Measurement control = 111 (continuous pressure and temperature)
     ret = spl06_write_register(SPL06_REG_MEAS_CFG, 0x07);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure measurement");
         return ret;
     }
-    ESP_LOGI(TAG, "Measurement configured: Continuous mode");
+    ESP_LOGI(TAG, "Measurement configured: Continuous mode (0x07)");
     
-    // Wait for first measurement to be ready (with oversampling 8x, takes ~200ms)
-    vTaskDelay(pdMS_TO_TICKS(300));
+    // Wait for first measurement to be ready
+    // With oversampling 8x and rate 4, first measurement takes ~200-250ms
+    ESP_LOGI(TAG, "Waiting for first measurement...");
+    int init_timeout = 50; // 50 attempts = 500ms
+    while (!spl06_is_ready() && init_timeout-- > 0) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (init_timeout <= 0) {
+        ESP_LOGW(TAG, "Sensor not ready after initialization wait");
+    } else {
+        ESP_LOGI(TAG, "Sensor ready after initialization");
+    }
 
     // Load calibration coefficients
     ret = spl06_read_calibration();
@@ -187,8 +213,21 @@ bool spl06_is_ready(void)
     }
 
     // Check if both pressure and temperature are ready
-    return (meas_cfg & (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY)) == 
-           (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY);
+    bool ready = (meas_cfg & (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY)) == 
+                 (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY);
+    
+    // Debug: log ready status
+    static int ready_debug_count = 0;
+    if (ready_debug_count < 5) {
+        ESP_LOGI(TAG, "Sensor ready check: meas_cfg=0x%02X, PRS_RDY=%d, TMP_RDY=%d, ready=%d",
+                 meas_cfg, 
+                 (meas_cfg & SPL06_MEAS_CFG_PRS_RDY) ? 1 : 0,
+                 (meas_cfg & SPL06_MEAS_CFG_TMP_RDY) ? 1 : 0,
+                 ready ? 1 : 0);
+        ready_debug_count++;
+    }
+    
+    return ready;
 }
 
 static int32_t spl06_read_raw_pressure(void)
@@ -209,24 +248,41 @@ static int32_t spl06_read_raw_pressure(void)
 
 static int32_t spl06_read_raw_temperature(void)
 {
-    uint8_t data[3];
-    // Read temperature registers: TMP_B2 (MSB), TMP_B1, TMP_B0 (LSB)
-    if (spl06_read_register(SPL06_REG_TMP_B2, data, 3) != ESP_OK) {
+    uint8_t b2, b1, b0;
+    
+    // Read temperature registers individually to ensure correct reading
+    // SPL06-001 uses register addresses 0x03 (TMP_B2), 0x04 (TMP_B1), 0x05 (TMP_B0)
+    if (spl06_read_register(SPL06_REG_TMP_B2, &b2, 1) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read TMP_B2 register");
+        return 0;
+    }
+    if (spl06_read_register(SPL06_REG_TMP_B1, &b1, 1) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read TMP_B1 register");
+        return 0;
+    }
+    if (spl06_read_register(SPL06_REG_TMP_B0, &b0, 1) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read TMP_B0 register");
         return 0;
     }
 
     // 24-bit signed value in two's complement
     // TMP_B2 is MSB (bits 23-16), TMP_B1 is middle (bits 15-8), TMP_B0 is LSB (bits 7-0)
-    int32_t raw = ((int32_t)data[0] << 16) | ((int32_t)data[1] << 8) | data[2];
+    int32_t raw = ((int32_t)b2 << 16) | ((int32_t)b1 << 8) | b0;
     
     // Sign extend from 24-bit to 32-bit
     if (raw & 0x800000) {
         raw |= 0xFF000000; // Sign extend for negative values
     }
 
-    // Debug: log raw bytes (always for diagnosis)
+    // Debug: log raw bytes
     ESP_LOGI(TAG, "Temp raw: B2=0x%02X, B1=0x%02X, B0=0x%02X -> 0x%06lX (%ld)",
-             data[0], data[1], data[2], (unsigned long)raw & 0xFFFFFF, raw);
+             b2, b1, b0, (unsigned long)raw & 0xFFFFFF, raw);
+    
+    // Validate raw value (typical range for temperature is -50000 to 50000)
+    if (raw > 50000 || raw < -50000) {
+        ESP_LOGW(TAG, "Temperature raw value out of expected range: %ld (expected -50000 to 50000)", raw);
+        ESP_LOGW(TAG, "This might indicate sensor not ready or incorrect reading");
+    }
 
     return raw;
 }

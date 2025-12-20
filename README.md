@@ -14,7 +14,7 @@ Sistema de adquisición de datos para monitores de neutrones basado en ESP32. Es
 
 ## Hardware Requerido
 
-- ESP32 con 8MB de flash
+- ESP32 con 4MB o 8MB de flash (ver [README_FLASH_SIZE.md](README_FLASH_SIZE.md) para más detalles)
 - Sensores o dispositivos de detección conectados a los pines GPIO:
   - Canal 1: GPIO 25
   - Canal 2: GPIO 26

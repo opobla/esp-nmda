@@ -37,12 +37,12 @@ void hv_adc_monitor_task(void *parameters)
         gettimeofday(&tv_now, NULL);
         int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
 
-        // Print values to console
+        // Print values to console with semantic names
         ESP_LOGI("HV_ADC_MONITOR", "========================================");
         ESP_LOGI("HV_ADC_MONITOR", "HV ADC Readings (ADS112C04):");
-        ESP_LOGI("HV_ADC_MONITOR", "  Channel 0:    %.2f mV", channel_voltages[0]);
-        ESP_LOGI("HV_ADC_MONITOR", "  Channel 1:    %.2f mV", channel_voltages[1]);
-        ESP_LOGI("HV_ADC_MONITOR", "  Channel 2:    %.2f mV", channel_voltages[2]);
+        ESP_LOGI("HV_ADC_MONITOR", "  HV_Vmon (ch0): %.2f mV", channel_voltages[0]);
+        ESP_LOGI("HV_ADC_MONITOR", "  HV_Vset (ch1): %.2f mV", channel_voltages[1]);
+        ESP_LOGI("HV_ADC_MONITOR", "  HV_Isense (ch2): %.2f mV", channel_voltages[2]);
         ESP_LOGI("HV_ADC_MONITOR", "  Channel 3:    %.2f mV", channel_voltages[3]);
         if (temp_ret == ESP_OK) {
             ESP_LOGI("HV_ADC_MONITOR", "  Temperature:   %.2f °C", temperature_celsius);

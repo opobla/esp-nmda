@@ -13,7 +13,6 @@ static const char *TAG = "HV_ADC";
 static bool hv_adc_initialized = false;
 static uint8_t current_gain = HV_ADC_GAIN_1;
 static uint8_t current_data_rate = HV_ADC_DR_20SPS;
-static uint8_t current_vref = HV_ADC_VREF_INTERNAL;
 
 // I2C address (configurable via Kconfig in the future)
 #define HV_ADC_I2C_ADDR HV_ADC_I2C_ADDR_DEFAULT
@@ -32,6 +31,35 @@ static esp_err_t hv_adc_read_register(uint8_t reg, uint8_t *data, size_t len)
 static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
 {
     return i2c_bus_write(HV_ADC_I2C_ADDR, &reg, 1, &data, 1, 1000);
+}
+
+/**
+ * @brief Send a command to the ADC
+ * 
+ * Commands are sent as a single byte write (no register address)
+ * According to ADS112C04 datasheet section 8.5.3, commands are sent as:
+ * - Write operation with command byte as the only data byte (no register address)
+ * @param cmd Command byte (e.g., 0x08 for START/SYNC, 0x02 for POWERDOWN, 0x10 for RDATA)
+ */
+static esp_err_t hv_adc_send_command(uint8_t cmd)
+{
+    // Commands are sent as a write operation with the command byte as data
+    // The ADS112C04 expects commands without a register address
+    // According to datasheet section 8.5.3, commands are sent as:
+    // - I2C write transaction with command byte as the only data byte
+    // Use i2c_bus_write with reg_addr_len=0 to send only the command byte
+    ESP_LOGD(TAG, "Sending command 0x%02X to ADC at address 0x%02X", cmd, HV_ADC_I2C_ADDR);
+    
+    // Verify that i2c_bus_write with reg_addr_len=0 sends only the command byte
+    // When reg_addr_len=0, total_len = 0 + 1 = 1, so only the command byte is sent
+    esp_err_t ret = i2c_bus_write(HV_ADC_I2C_ADDR, NULL, 0, &cmd, 1, 1000);
+    
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Command 0x%02X failed: %s", cmd, esp_err_to_name(ret));
+    } else {
+        ESP_LOGD(TAG, "Command 0x%02X sent successfully", cmd);
+    }
+    return ret;
 }
 
 esp_err_t hv_adc_init(void)
@@ -58,17 +86,25 @@ esp_err_t hv_adc_init(void)
     }
     ESP_LOGI(TAG, "ADC detected! Initial CONFIG0 value: 0x%02X", config0_test);
 
-    // Reset ADC by writing to config register (soft reset)
-    // Writing 0x01 to CONFIG0 performs a reset
-    ret = hv_adc_write_register(HV_ADC_REG_CONFIG0, 0x01);
+    // Reset ADC using RESET command (0x06 or 0x07)
+    // According to datasheet section 8.5.3.2, RESET command is 0000 011x
+    ESP_LOGI(TAG, "Sending RESET command (0x06)");
+    ret = hv_adc_send_command(0x06);  // RESET command
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to reset ADC: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to send RESET command: %s", esp_err_to_name(ret));
         return ret;
     }
     ESP_LOGI(TAG, "ADC reset command sent");
 
     // Wait for reset to complete (typically 50us, but wait 10ms to be safe)
     vTaskDelay(pdMS_TO_TICKS(10));
+    
+    // Verify reset by reading CONFIG0 (should be 0x00 after reset)
+    uint8_t config0_after_reset;
+    ret = hv_adc_read_register(HV_ADC_REG_CONFIG0, &config0_after_reset, 1);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "CONFIG0 after reset: 0x%02X (expected 0x00)", config0_after_reset);
+    }
 
     // Configure CONFIG0: MUX = AIN0-AIN1, Gain = 1, PGA enabled
     uint8_t config0 = (HV_ADC_MUX_AIN0_AIN1 << HV_ADC_CONFIG0_MUX_SHIFT) |
@@ -79,10 +115,15 @@ esp_err_t hv_adc_init(void)
         return ret;
     }
 
-    // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, Internal VREF
+    // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, Internal VREF, TS=0 (normal mode)
+    // IMPORTANT: TS bit (bit 0) must be 0 for normal ADC conversions
+    // TS=1 puts ADC in temperature sensor mode only
     uint8_t config1 = (HV_ADC_DR_20SPS << HV_ADC_CONFIG1_DR_SHIFT) |
                       (HV_ADC_CM_SINGLE << HV_ADC_CONFIG1_CM_SHIFT) |
                       (HV_ADC_VREF_INTERNAL);
+    // Ensure TS bit is 0 (temperature sensor mode disabled)
+    config1 &= ~0x01;  // Clear bit 0 (TS bit)
+    ESP_LOGI(TAG, "Writing CONFIG1: 0x%02X (DR=20SPS, CM=single, VREF=internal, TS=0)", config1);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG1, config1);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG1: %s", esp_err_to_name(ret));
@@ -118,6 +159,19 @@ esp_err_t hv_adc_init(void)
 
     ESP_LOGI(TAG, "ADC configured: CONFIG0=0x%02X, CONFIG1=0x%02X", read_config0, read_config1);
     
+    // Verify TS bit is 0 (temperature sensor mode should be disabled for normal conversions)
+    if (read_config1 & 0x01) {
+        ESP_LOGW(TAG, "WARNING: TS bit is set in CONFIG1 (0x%02X)! ADC is in temperature sensor mode.", read_config1);
+        ESP_LOGW(TAG, "This will prevent normal ADC conversions. Clearing TS bit...");
+        read_config1 &= ~0x01;  // Clear TS bit
+        ret = hv_adc_write_register(HV_ADC_REG_CONFIG1, read_config1);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "TS bit cleared. CONFIG1 now: 0x%02X", read_config1);
+        }
+    } else {
+        ESP_LOGI(TAG, "TS bit is correctly cleared (normal ADC mode)");
+    }
+    
     // Verify all configuration registers
     uint8_t read_config2, read_config3;
     ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &read_config2, 1);
@@ -129,7 +183,19 @@ esp_err_t hv_adc_init(void)
                  read_config0, read_config1, read_config2, read_config3);
     }
 
+    // Mark ADC as initialized BEFORE sending START/SYNC (needed for hv_adc_start_conversion check)
     hv_adc_initialized = true;
+
+    // Send initial START/SYNC command to wake up ADC from power-down state
+    // After reset, ADC is in low-power state and needs START/SYNC to begin conversions
+    ESP_LOGI(TAG, "Sending initial START/SYNC command to wake up ADC");
+    ret = hv_adc_start_conversion();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Initial START/SYNC failed (may be normal): %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "Initial START/SYNC sent successfully");
+    }
+
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "HV ADC initialized successfully");
     ESP_LOGI(TAG, "========================================");
@@ -206,18 +272,17 @@ esp_err_t hv_adc_start_conversion(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    // In single-shot mode, writing to CONFIG0 with START bit triggers conversion
-    // For ADS112C04, we need to set the START bit in CONFIG0
-    // Actually, the ADS112C04 starts conversion automatically in single-shot mode
-    // when we configure the MUX. Let's read CONFIG0 and set it again to trigger.
-    uint8_t config0;
-    esp_err_t ret = hv_adc_read_register(HV_ADC_REG_CONFIG0, &config0, 1);
+    // Send START/SYNC command (0x08) to start conversion
+    // In single-shot mode, this initiates one conversion
+    // In continuous mode, this starts continuous conversions
+    ESP_LOGD(TAG, "Sending START/SYNC command (0x08)");
+    esp_err_t ret = hv_adc_send_command(0x08);  // START/SYNC command
+    
     if (ret != ESP_OK) {
-        return ret;
+        ESP_LOGE(TAG, "Failed to send START/SYNC command: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGD(TAG, "START/SYNC command sent successfully");
     }
-
-    // Write back to trigger conversion (some ADCs need this)
-    ret = hv_adc_write_register(HV_ADC_REG_CONFIG0, config0);
     
     return ret;
 }
@@ -228,19 +293,19 @@ bool hv_adc_is_ready(void)
         return false;
     }
 
-    // For ADS112C04, we can check the DATA register or use DRDY pin
-    // For now, we'll use a simple timeout-based approach
-    // In a real implementation, we'd check the DRDY status
-    
-    // Read CONFIG3 to check DRDY mode (if implemented)
-    uint8_t config3;
-    if (hv_adc_read_register(HV_ADC_REG_CONFIG3, &config3, 1) != ESP_OK) {
+    // Check CONFIG2 register bit 7 (DRDY bit) to see if conversion is ready
+    // According to datasheet section 8.6.2.3, bit 7 of CONFIG2 indicates new data ready
+    uint8_t config2;
+    esp_err_t ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &config2, 1);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read CONFIG2 for DRDY check: %s", esp_err_to_name(ret));
         return false;
     }
 
-    // For now, assume ready after a delay based on data rate
-    // This is a simplified implementation
-    return true;
+    // Bit 7 is the DRDY flag (1 = new data ready, 0 = no new data)
+    bool ready = (config2 & 0x80) != 0;
+    
+    return ready;
 }
 
 esp_err_t hv_adc_read_result(int16_t *raw_value)
@@ -254,18 +319,43 @@ esp_err_t hv_adc_read_result(int16_t *raw_value)
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Read 16-bit result from DATA register (2 bytes, MSB first)
-    uint8_t data[2];
-    esp_err_t ret = hv_adc_read_register(HV_ADC_REG_DATA, data, 2);
+    // Use RDATA command to read conversion result
+    // According to datasheet section 8.5.3.5, RDATA requires:
+    // 1. First frame: I2C write with RDATA command (0x10) - START, address+W, 0x10, STOP
+    // 2. Second frame: I2C read to get 2 bytes - START (repeated), address+R, data[MSB], ACK, data[LSB], NACK, STOP
+    // We use i2c_bus_write_read for this combined operation
+    uint8_t rdata_cmd = 0x10;
+    uint8_t data[2] = {0, 0};
+    
+    ESP_LOGD(TAG, "Sending RDATA command (0x%02X)", rdata_cmd);
+    
+    // Check CONFIG2 before reading to see DRDY state
+    uint8_t config2_before_read;
+    if (hv_adc_read_register(HV_ADC_REG_CONFIG2, &config2_before_read, 1) == ESP_OK) {
+        ESP_LOGD(TAG, "CONFIG2 before RDATA: 0x%02X (DRDY=%d)", 
+                 config2_before_read, (config2_before_read & 0x80) ? 1 : 0);
+    }
+    
+    esp_err_t ret = i2c_bus_write_read(HV_ADC_I2C_ADDR, &rdata_cmd, 1, data, 2, 1000);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read ADC result: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to read ADC result (RDATA): %s", esp_err_to_name(ret));
         return ret;
     }
+
+    ESP_LOGD(TAG, "RDATA response: MSB=0x%02X, LSB=0x%02X, combined=0x%04X", 
+             data[0], data[1], ((uint16_t)data[0] << 8) | data[1]);
 
     // Combine bytes: MSB first, 16-bit signed value
     int16_t result = ((int16_t)data[0] << 8) | data[1];
 
     *raw_value = result;
+    
+    // Check CONFIG2 after reading (DRDY should be cleared after reading)
+    uint8_t config2_after_read;
+    if (hv_adc_read_register(HV_ADC_REG_CONFIG2, &config2_after_read, 1) == ESP_OK) {
+        ESP_LOGD(TAG, "CONFIG2 after RDATA: 0x%02X (DRDY=%d)", 
+                 config2_after_read, (config2_after_read & 0x80) ? 1 : 0);
+    }
 
     return ESP_OK;
 }
@@ -285,8 +375,11 @@ esp_err_t hv_adc_read_differential(uint8_t mux_config, float *voltage_mv)
     uint8_t config0;
     esp_err_t ret = hv_adc_read_register(HV_ADC_REG_CONFIG0, &config0, 1);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read CONFIG0: %s", esp_err_to_name(ret));
         return ret;
     }
+
+    ESP_LOGD(TAG, "Current CONFIG0: 0x%02X, setting MUX to 0x%02X", config0, mux_config);
 
     // Set MUX configuration
     config0 &= ~HV_ADC_CONFIG0_MUX_MASK;
@@ -298,36 +391,82 @@ esp_err_t hv_adc_read_differential(uint8_t mux_config, float *voltage_mv)
         return ret;
     }
 
+    ESP_LOGD(TAG, "MUX configured, CONFIG0 now: 0x%02X", config0);
+
     // Wait a bit for MUX to settle
     vTaskDelay(pdMS_TO_TICKS(10));
 
-    // Start conversion (write CONFIG0 again to trigger)
-    ret = hv_adc_write_register(HV_ADC_REG_CONFIG0, config0);
+    // Check CONFIG2 before starting conversion
+    uint8_t config2_before;
+    esp_err_t ret_config2 = hv_adc_read_register(HV_ADC_REG_CONFIG2, &config2_before, 1);
+    if (ret_config2 == ESP_OK) {
+        ESP_LOGD(TAG, "CONFIG2 before START/SYNC: 0x%02X (DRDY bit=%d)", 
+                 config2_before, (config2_before & 0x80) ? 1 : 0);
+    }
+
+    // Send START/SYNC command to initiate conversion (required in single-shot mode)
+    ret = hv_adc_start_conversion();
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start conversion: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Wait for conversion to complete (depends on data rate)
-    // For 20 SPS, conversion takes ~50ms
-    int delay_ms = 100;  // Conservative delay
-    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    // Small delay to allow command to be processed
+    vTaskDelay(pdMS_TO_TICKS(5));
 
-    // Read result
+    // Wait for conversion to complete
+    // For 20 SPS, conversion takes ~50ms according to datasheet
+    // Poll DRDY bit or wait with timeout
+    int timeout_ms = 100;  // Maximum wait time
+    int poll_interval_ms = 5;  // Check every 5ms
+    bool ready = false;
+    
+    for (int waited = 0; waited < timeout_ms; waited += poll_interval_ms) {
+        vTaskDelay(pdMS_TO_TICKS(poll_interval_ms));
+        ready = hv_adc_is_ready();
+        if (ready) {
+            ESP_LOGD(TAG, "Conversion ready after %d ms", waited + poll_interval_ms);
+            break;
+        }
+    }
+    
+    if (!ready) {
+        ESP_LOGW(TAG, "Conversion not ready after %d ms timeout, reading anyway", timeout_ms);
+        // Read CONFIG2 to see current state
+        uint8_t config2_after;
+        if (hv_adc_read_register(HV_ADC_REG_CONFIG2, &config2_after, 1) == ESP_OK) {
+            ESP_LOGW(TAG, "CONFIG2 after timeout: 0x%02X (DRDY bit=%d)", 
+                     config2_after, (config2_after & 0x80) ? 1 : 0);
+        }
+    }
+
+    // Read result using RDATA command
     int16_t raw_value;
     ret = hv_adc_read_result(&raw_value);
     if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read result: %s", esp_err_to_name(ret));
         return ret;
     }
 
     // Convert to voltage
     // Formula: V = (raw_value / full_scale) * VREF / gain
+    // Full scale is ±32768 for 16-bit signed
     float gain_factor = 1.0f / (1 << current_gain);
     float vref_mv = HV_ADC_VREF_INTERNAL_MV;
     
     *voltage_mv = ((float)raw_value / HV_ADC_FULL_SCALE) * vref_mv * gain_factor;
 
-    ESP_LOGI(TAG, "ADC differential read: MUX=0x%02X, raw=%d, voltage=%.2f mV", 
-             mux_config, raw_value, *voltage_mv);
+    // Map MUX to channel name for better logging
+    const char* channel_name = "Unknown";
+    if (mux_config == HV_ADC_MUX_AIN0_AVSS) channel_name = "HV_Vmon (ch0)";
+    else if (mux_config == HV_ADC_MUX_AIN1_AVSS) channel_name = "HV_Vset (ch1)";
+    else if (mux_config == HV_ADC_MUX_AIN2_AVSS) channel_name = "HV_Isense (ch2)";
+    else if (mux_config == HV_ADC_MUX_AIN3_AVSS) channel_name = "Channel 3";
+    else if (mux_config == HV_ADC_MUX_AIN0_AIN1) channel_name = "AIN0-AIN1";
+    else if (mux_config == HV_ADC_MUX_TEMP) channel_name = "Temperature";
+    
+    ESP_LOGI(TAG, "ADC read: %s (MUX=0x%02X), raw=%d, voltage=%.2f mV", 
+             channel_name, mux_config, raw_value, *voltage_mv);
 
     return ESP_OK;
 }
@@ -356,22 +495,79 @@ esp_err_t hv_adc_read_temperature(float *temp_celsius)
         return ESP_ERR_INVALID_ARG;
     }
 
-    // Read temperature from TEMP register
-    uint8_t temp_data[2];
-    esp_err_t ret = hv_adc_read_register(HV_ADC_REG_TEMP, temp_data, 2);
+    // Enable temperature sensor mode by setting TS bit in CONFIG1
+    uint8_t config1;
+    esp_err_t ret = hv_adc_read_register(HV_ADC_REG_CONFIG1, &config1, 1);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read temperature: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to read CONFIG1: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // Temperature is 16-bit signed value
-    int16_t temp_raw = ((int16_t)temp_data[0] << 8) | temp_data[1];
+    // Set TS bit (bit 0) to enable temperature sensor mode
+    config1 |= 0x01;  // TS bit
+    ret = hv_adc_write_register(HV_ADC_REG_CONFIG1, config1);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to enable temperature sensor mode: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Wait a bit for mode change to settle
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    // Start conversion
+    ret = hv_adc_start_conversion();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start temperature conversion: %s", esp_err_to_name(ret));
+        // Restore CONFIG1
+        config1 &= ~0x01;
+        hv_adc_write_register(HV_ADC_REG_CONFIG1, config1);
+        return ret;
+    }
+
+    // Wait for conversion to complete
+    int timeout_ms = 100;
+    int poll_interval_ms = 5;
+    bool ready = false;
+    
+    for (int waited = 0; waited < timeout_ms; waited += poll_interval_ms) {
+        vTaskDelay(pdMS_TO_TICKS(poll_interval_ms));
+        ready = hv_adc_is_ready();
+        if (ready) {
+            ESP_LOGD(TAG, "Temperature conversion ready after %d ms", waited + poll_interval_ms);
+            break;
+        }
+    }
+    
+    if (!ready) {
+        ESP_LOGW(TAG, "Temperature conversion not ready after %d ms timeout", timeout_ms);
+    }
+
+    // Read result
+    int16_t temp_raw;
+    ret = hv_adc_read_result(&temp_raw);
+    
+    // Restore CONFIG1 (disable temperature sensor mode)
+    config1 &= ~0x01;
+    hv_adc_write_register(HV_ADC_REG_CONFIG1, config1);
+
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read temperature result: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
     // Convert to Celsius
-    // According to ADS112C04 datasheet: T(°C) = (temp_raw / 32) - 40
-    *temp_celsius = ((float)temp_raw / 32.0f) - 40.0f;
+    // According to ADS112C04 datasheet section 8.3.10:
+    // Temperature data is 14-bit left-justified in 16-bit result
+    // Resolution: 0.03125°C per LSB
+    // Formula: T(°C) = (temp_raw >> 2) * 0.03125
+    // Or: T(°C) = (temp_raw / 32.0) - 40.0 (if using the simplified formula)
+    // Actually, the datasheet says the 14 MSBs represent temperature
+    // Let's extract the 14-bit value and convert
+    int16_t temp_14bit = temp_raw >> 2;  // Right-shift to get 14-bit value
+    *temp_celsius = ((float)temp_14bit) * 0.03125f;
 
-    ESP_LOGI(TAG, "ADC temperature: raw=%d, temp=%.2f°C", temp_raw, *temp_celsius);
+    ESP_LOGI(TAG, "ADC temperature: raw=0x%04X (%d), temp_14bit=%d, temp=%.2f°C", 
+             (uint16_t)temp_raw, temp_raw, temp_14bit, *temp_celsius);
 
     return ESP_OK;
 }
