@@ -23,6 +23,10 @@
 #include "spl06.h"
 #endif
 
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+#include "hv_adc.h"
+#endif
+
 QueueHandle_t telemetry_queue;
 SemaphoreHandle_t wifi_semaphore;
 SemaphoreHandle_t sntp_semaphore;
@@ -37,7 +41,10 @@ void app_main(void)
     init_nvs();
 
     ESP_LOGI("APP_MAIN", "Loading nmda configuration");
-    ESP_ERROR_CHECK(load_nmda_settings(&nmda_config));
+    esp_err_t settings_ret = load_nmda_settings(&nmda_config);
+    if (settings_ret != ESP_OK) {
+        ESP_LOGW("APP_MAIN", "Failed to load settings (ret: %s), using defaults", esp_err_to_name(settings_ret));
+    }
     print_nmda_init_config(&nmda_config);
 
     telemetry_queue = xQueueCreate(100, sizeof(struct telemetry_message));
@@ -75,6 +82,20 @@ void app_main(void)
         ESP_LOGI("APP_MAIN", "I2C bus initialized successfully");
         // Scan I2C bus to see what devices are connected
         i2c_bus_scan();
+        
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+        // Verify ADC is present on I2C bus
+        ESP_LOGI("APP_MAIN", "Checking for HV ADC (ADS112C04) at address 0x%02X...", 0x48);
+        uint8_t test_reg = 0x00;  // CONFIG0 register
+        uint8_t test_data;
+        esp_err_t adc_check = i2c_bus_read(0x48, &test_reg, 1, &test_data, 1, 100);
+        if (adc_check == ESP_OK) {
+            ESP_LOGI("APP_MAIN", "HV ADC detected! CONFIG0 register read: 0x%02X", test_data);
+        } else {
+            ESP_LOGW("APP_MAIN", "HV ADC not detected at address 0x48: %s", esp_err_to_name(adc_check));
+            ESP_LOGW("APP_MAIN", "Check I2C connections and verify ADC is powered");
+        }
+#endif
     } else {
         ESP_LOGE("APP_MAIN", "I2C bus initialization failed: %s", esp_err_to_name(i2c_ret));
     }
@@ -98,6 +119,30 @@ void app_main(void)
     }
 #else
     ESP_LOGW("APP_MAIN", "SPL06 support is disabled in configuration");
+#endif
+
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+    ESP_LOGI("APP_MAIN", "Initializing HV ADC");
+    esp_err_t hv_adc_ret = hv_adc_init();
+    if (hv_adc_ret == ESP_OK) {
+        ESP_LOGI("APP_MAIN", "HV ADC initialized successfully");
+        
+        // Test reading channel 0
+        float voltage_mv;
+        if (hv_adc_read_channel(0, &voltage_mv) == ESP_OK) {
+            ESP_LOGI("APP_MAIN", "HV ADC Channel 0: %.2f mV", voltage_mv);
+        }
+        
+        // Test reading temperature
+        float temp_celsius;
+        if (hv_adc_read_temperature(&temp_celsius) == ESP_OK) {
+            ESP_LOGI("APP_MAIN", "HV ADC Temperature: %.2f°C", temp_celsius);
+        }
+    } else {
+        ESP_LOGE("APP_MAIN", "HV ADC initialization failed: %s", esp_err_to_name(hv_adc_ret));
+    }
+#else
+    ESP_LOGW("APP_MAIN", "HV support is disabled in configuration");
 #endif
 
     // MQTT temporarily disabled - uncomment when MQTT server is configured correctly

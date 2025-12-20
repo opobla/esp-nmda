@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "nvs.h"
+#include "esp_partition.h"
 #include "settings.h"
 #include "ini.h"
 #include <string.h>
@@ -112,12 +113,38 @@ esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
     ESP_LOGI(TAG, "Loading settings from NVS");
     err = nvs_flash_init_partition(NVS_PARTITION_NAME);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Error initializing NVS partition: %s", esp_err_to_name(err));
-        return err;
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "NVS partition '%s' not found or not initialized", NVS_PARTITION_NAME);
+            ESP_LOGW(TAG, "This is normal on first boot. Settings will use defaults.");
+            return ESP_ERR_NVS_NOT_FOUND;
+        } else if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            ESP_LOGW(TAG, "NVS partition needs erasing: %s", esp_err_to_name(err));
+            // Try to erase and reinitialize
+            const esp_partition_t* partition = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 
+                                                                        ESP_PARTITION_SUBTYPE_DATA_NVS, 
+                                                                        NVS_PARTITION_NAME);
+            if (partition != NULL) {
+                ESP_LOGW(TAG, "Erasing NVS partition...");
+                err = esp_partition_erase_range(partition, 0, partition->size);
+                if (err == ESP_OK) {
+                    err = nvs_flash_init_partition(NVS_PARTITION_NAME);
+                }
+            }
+        }
+        
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Error initializing NVS partition: %s", esp_err_to_name(err));
+            return err;
+        }
     }
 
     err = nvs_open_from_partition(NVS_PARTITION_NAME, "settings", NVS_READONLY, &my_nvs_handle);
     if (err != ESP_OK) {
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "NVS namespace 'settings' not found in partition '%s'", NVS_PARTITION_NAME);
+            ESP_LOGW(TAG, "This is normal on first boot. Settings will use defaults.");
+            return ESP_ERR_NVS_NOT_FOUND;
+        }
         ESP_LOGE(TAG, "Error (%s) opening NVS handle!", esp_err_to_name(err));
         return err;
     }
@@ -194,8 +221,13 @@ esp_err_t load_nmda_settings(nmda_init_config_t* nmda_config) {
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Settings loaded from NVS");
         return ESP_OK;
+    } else if (err == ESP_ERR_NVS_NOT_FOUND) {
+        // NVS partition or namespace doesn't exist yet - this is OK on first boot
+        ESP_LOGW(TAG, "NVS settings not found (first boot or partition not initialized)");
+        ESP_LOGW(TAG, "Using default settings. You can configure via SD card or initialize NVS partition.");
+        return ESP_OK;  // Return OK to allow boot with defaults
     }
     
     ESP_LOGW(TAG, "Failed to load settings from both SD card and NVS, using defaults");
-    return ESP_FAIL;
+    return ESP_OK;  // Return OK instead of FAIL to allow boot with defaults
 }
