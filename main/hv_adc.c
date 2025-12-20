@@ -219,6 +219,8 @@ esp_err_t hv_adc_init(void)
     // - Bits 2-0: IDAC current setting (000 = off)
     uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
     ESP_LOGI(TAG, "Writing CONFIG2: 0x%02X (DCNT=1, DRDY polling enabled)", config2);
+    ESP_LOGD(TAG, "WREG CONFIG2 command will be: 0x%02X, data: 0x%02X", 
+             (HV_ADC_CMD_WREG | (HV_ADC_REG_CONFIG2 << 2)), config2);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG2: %s", esp_err_to_name(ret));
@@ -261,7 +263,10 @@ esp_err_t hv_adc_init(void)
     
     // Verify all configuration registers
     uint8_t read_config2, read_config3;
+    vTaskDelay(pdMS_TO_TICKS(10));  // Wait 10ms for CONFIG2 write to settle
     ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &read_config2, 1);
+    ESP_LOGD(TAG, "RREG CONFIG2 command: 0x%02X, read result: 0x%02X", 
+             (HV_ADC_CMD_RREG | (HV_ADC_REG_CONFIG2 << 2)), read_config2);
     if (ret == ESP_OK) {
         ret = hv_adc_read_register(HV_ADC_REG_CONFIG3, &read_config3, 1);
     }
