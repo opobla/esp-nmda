@@ -127,16 +127,12 @@ void app_main(void)
     if (hv_adc_ret == ESP_OK) {
         ESP_LOGI("APP_MAIN", "HV ADC initialized successfully");
         
-        // Test reading channel 0
-        float voltage_mv;
-        if (hv_adc_read_channel(0, &voltage_mv) == ESP_OK) {
-            ESP_LOGI("APP_MAIN", "HV ADC Channel 0: %.2f mV", voltage_mv);
-        }
-        
-        // Test reading temperature
-        float temp_celsius;
-        if (hv_adc_read_temperature(&temp_celsius) == ESP_OK) {
-            ESP_LOGI("APP_MAIN", "HV ADC Temperature: %.2f°C", temp_celsius);
+        // Create monitor task for periodic ADC readings
+        BaseType_t task_ret = xTaskCreatePinnedToCore(&hv_adc_monitor_task, "HV ADC Monitor", 4096, NULL, 3, NULL, 1);
+        if (task_ret == pdPASS) {
+            ESP_LOGI("APP_MAIN", "HV ADC monitor task created successfully");
+        } else {
+            ESP_LOGE("APP_MAIN", "Failed to create HV ADC monitor task");
         }
     } else {
         ESP_LOGE("APP_MAIN", "HV ADC initialization failed: %s", esp_err_to_name(hv_adc_ret));

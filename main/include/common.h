@@ -27,6 +27,10 @@ void task_detection(void *parameters);
 void spl06_monitor_task(void *parameters);
 #endif
 
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+void hv_adc_monitor_task(void *parameters);
+#endif
+
 //SET UP
 void init_GPIO(void);
 
