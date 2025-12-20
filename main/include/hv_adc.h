@@ -10,7 +10,15 @@
 // ADS112C04 I2C address (default)
 #define HV_ADC_I2C_ADDR_DEFAULT  0x48
 
-// ADS112C04 Register addresses
+// ADS112C04 Commands (see datasheet section 8.5.3)
+#define HV_ADC_CMD_RESET    0x06  // Reset command: 0000 011x
+#define HV_ADC_CMD_START    0x08  // START/SYNC command: 0000 100x
+#define HV_ADC_CMD_POWERDOWN 0x02 // POWERDOWN command: 0000 001x
+#define HV_ADC_CMD_RDATA    0x10  // RDATA command: 0001 xxxx
+#define HV_ADC_CMD_RREG     0x20  // RREG command: 0010 nnxx (nn=register, xx=count-1)
+#define HV_ADC_CMD_WREG     0x40  // WREG command: 0100 nnxx (nn=register, xx=count-1)
+
+// ADS112C04 Register addresses (used with RREG/WREG commands)
 #define HV_ADC_REG_CONFIG0       0x00
 #define HV_ADC_REG_CONFIG1       0x01
 #define HV_ADC_REG_CONFIG2       0x02

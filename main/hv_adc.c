@@ -23,14 +23,93 @@ static uint8_t current_data_rate = HV_ADC_DR_20SPS;
 // Full scale range for 16-bit ADC
 #define HV_ADC_FULL_SCALE 32768.0f
 
+/**
+ * @brief Read one or more registers from the ADC using RREG command
+ * 
+ * According to ADS112C04 datasheet section 8.5.3.3:
+ * RREG command format: 0010 rrnn
+ *   - Bits 7-6: 00 (RREG identifier bits)
+ *   - Bit 5: 1 (RREG identifier bit)
+ *   - Bits 4-2: rrr = register number (0-3)
+ *   - Bits 1-0: nn = number of registers to read - 1 (0-3)
+ * 
+ * Example: To read CONFIG1 (register 1):
+ *   RREG command = 0x20 | (1 << 2) | 0 = 0x24
+ * 
+ * @param reg Register number (0-3)
+ * @param data Buffer to store read data
+ * @param len Number of registers to read (1-4)
+ * @return ESP_OK on success
+ */
 static esp_err_t hv_adc_read_register(uint8_t reg, uint8_t *data, size_t len)
 {
-    return i2c_bus_read(HV_ADC_I2C_ADDR, &reg, 1, data, len, 1000);
+    if (reg > 3 || len == 0 || len > 4 || data == NULL) {
+        ESP_LOGE(TAG, "Invalid register read parameters: reg=%d, len=%d", reg, len);
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Build RREG command: 0x20 | (reg << 2) | ((len - 1) & 0x03)
+    uint8_t rreg_cmd = HV_ADC_CMD_RREG | (reg << 2) | ((len - 1) & 0x03);
+    
+    ESP_LOGD(TAG, "RREG: Reading %d register(s) starting at reg %d, command=0x%02X", 
+             len, reg, rreg_cmd);
+    
+    // Send RREG command, then read response
+    esp_err_t ret = i2c_bus_write_read(HV_ADC_I2C_ADDR, &rreg_cmd, 1, data, len, 1000);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGD(TAG, "RREG: Successfully read register %d: 0x%02X", reg, data[0]);
+    } else {
+        ESP_LOGE(TAG, "RREG: Failed to read register %d: %s", reg, esp_err_to_name(ret));
+    }
+    
+    return ret;
 }
 
+/**
+ * @brief Write one or more registers to the ADC using WREG command
+ * 
+ * According to ADS112C04 datasheet section 8.5.3.4:
+ * WREG command format: 0100 rrnn
+ *   - Bits 7-6: 01 (WREG identifier)
+ *   - Bits 5-2: rrrr = register number (0-3)
+ *   - Bits 1-0: nn = number of registers to write - 1 (0-3)
+ * 
+ * Example: To write CONFIG1 (register 1) with value 0x00:
+ *   WREG command = 0x40 | (1 << 2) | 0 = 0x44
+ *   Data bytes: 0x00
+ *   I2C sequence: START, [Address+W], [0x44], [0x00], STOP
+ * 
+ * @param reg Register number (0-3)
+ * @param data Data byte to write
+ * @return ESP_OK on success
+ */
 static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
 {
-    return i2c_bus_write(HV_ADC_I2C_ADDR, &reg, 1, &data, 1, 1000);
+    if (reg > 3) {
+        ESP_LOGE(TAG, "Invalid register number: %d", reg);
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Build WREG command: 0x40 | (reg << 2) | 0 (writing 1 register)
+    uint8_t wreg_cmd = HV_ADC_CMD_WREG | (reg << 2);
+    
+    // Prepare data: [WREG command, data byte]
+    uint8_t write_buffer[2] = {wreg_cmd, data};
+    
+    ESP_LOGD(TAG, "WREG: Writing to register %d, command=0x%02X, data=0x%02X", 
+             reg, wreg_cmd, data);
+    
+    // Send WREG command and data in one transaction
+    esp_err_t ret = i2c_bus_write(HV_ADC_I2C_ADDR, NULL, 0, write_buffer, 2, 1000);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGD(TAG, "WREG: Successfully wrote 0x%02X to register %d", data, reg);
+    } else {
+        ESP_LOGE(TAG, "WREG: Failed to write register %d: %s", reg, esp_err_to_name(ret));
+    }
+    
+    return ret;
 }
 
 /**
@@ -88,8 +167,8 @@ esp_err_t hv_adc_init(void)
 
     // Reset ADC using RESET command (0x06 or 0x07)
     // According to datasheet section 8.5.3.2, RESET command is 0000 011x
-    ESP_LOGI(TAG, "Sending RESET command (0x06)");
-    ret = hv_adc_send_command(0x06);  // RESET command
+    ESP_LOGI(TAG, "Sending RESET command (0x%02X)", HV_ADC_CMD_RESET);
+    ret = hv_adc_send_command(HV_ADC_CMD_RESET);  // RESET command
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to send RESET command: %s", esp_err_to_name(ret));
         return ret;
