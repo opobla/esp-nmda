@@ -214,8 +214,12 @@ esp_err_t hv_adc_init(void)
     }
 
     // Configure CONFIG0: MUX = AIN0-AIN1, Gain = 1, PGA enabled
+    // Write a NON-ZERO value to verify the write actually works
     uint8_t config0 = (HV_ADC_MUX_AIN0_AIN1 << HV_ADC_CONFIG0_MUX_SHIFT) |
                       (HV_ADC_GAIN_1 << HV_ADC_CONFIG0_GAIN_SHIFT);
+    // config0 should be 0x00 for this configuration, but let's try 0x10 to test
+    // Actually, let's keep it as calculated but verify it's not 0x00
+    ESP_LOGI(TAG, "Writing CONFIG0: 0x%02X", config0);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG0, config0);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG0: %s", esp_err_to_name(ret));
@@ -225,7 +229,8 @@ esp_err_t hv_adc_init(void)
     vTaskDelay(pdMS_TO_TICKS(10));
     uint8_t verify_config0;
     if (hv_adc_read_register(HV_ADC_REG_CONFIG0, &verify_config0, 1) == ESP_OK) {
-        ESP_LOGI(TAG, "CONFIG0 verification: wrote 0x%02X, read 0x%02X", config0, verify_config0);
+        ESP_LOGI(TAG, "CONFIG0 verification: wrote 0x%02X, read 0x%02X %s", 
+                 config0, verify_config0, (config0 == verify_config0) ? "✓" : "✗");
     }
 
     // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, Internal VREF, TS=0 (normal mode)
@@ -246,10 +251,21 @@ esp_err_t hv_adc_init(void)
     vTaskDelay(pdMS_TO_TICKS(10));
     uint8_t verify_config1;
     if (hv_adc_read_register(HV_ADC_REG_CONFIG1, &verify_config1, 1) == ESP_OK) {
-        ESP_LOGI(TAG, "CONFIG1 verification: wrote 0x%02X, read 0x%02X", config1, verify_config1);
+        ESP_LOGI(TAG, "CONFIG1 verification: wrote 0x%02X, read 0x%02X %s", 
+                 config1, verify_config1, (config1 == verify_config1) ? "✓" : "✗");
     }
 
+    // Configure CONFIG3: Default settings FIRST
+    uint8_t config3 = 0x00;
+    ret = hv_adc_write_register(HV_ADC_REG_CONFIG3, config3);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write CONFIG3: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));  // Wait before writing CONFIG2
+    
     // Configure CONFIG2: Enable data counter (DCNT=1, bit 6) to make DRDY available in CONFIG2 bit 7
+    // IMPORTANT: Write CONFIG2 AFTER CONFIG3, as some ADCs require registers to be written in order
     // According to datasheet section 8.6.2.3:
     // - Bit 7 (DRDY): Data ready flag (read-only, set by ADC when conversion complete)
     // - Bit 6 (DCNT): Data counter enable (1 = enable, makes DRDY available in bit 7)
@@ -268,7 +284,7 @@ esp_err_t hv_adc_init(void)
     }
     
     // Wait longer for CONFIG2 to settle (some ADCs need more time for certain registers)
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(100));  // Increased from 50ms to 100ms
     
     // Verify CONFIG2 was written correctly
     uint8_t verify_config2;
@@ -280,21 +296,13 @@ esp_err_t hv_adc_init(void)
             // Retry writing CONFIG2
             ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
             if (ret == ESP_OK) {
-                vTaskDelay(pdMS_TO_TICKS(50));
+                vTaskDelay(pdMS_TO_TICKS(100));
                 ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &verify_config2, 1);
                 if (ret == ESP_OK) {
                     ESP_LOGI(TAG, "CONFIG2 after retry: 0x%02X", verify_config2);
                 }
             }
         }
-    }
-
-    // Configure CONFIG3: Default settings
-    uint8_t config3 = 0x00;
-    ret = hv_adc_write_register(HV_ADC_REG_CONFIG3, config3);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to write CONFIG3: %s", esp_err_to_name(ret));
-        return ret;
     }
 
     // Verify configuration by reading back
