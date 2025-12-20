@@ -225,6 +225,28 @@ esp_err_t hv_adc_init(void)
         ESP_LOGE(TAG, "Failed to write CONFIG2: %s", esp_err_to_name(ret));
         return ret;
     }
+    
+    // Wait longer for CONFIG2 to settle (some ADCs need more time for certain registers)
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
+    // Verify CONFIG2 was written correctly
+    uint8_t verify_config2;
+    ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &verify_config2, 1);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "CONFIG2 verification read: 0x%02X (expected 0x40)", verify_config2);
+        if (verify_config2 != 0x40) {
+            ESP_LOGW(TAG, "CONFIG2 write failed! Retrying...");
+            // Retry writing CONFIG2
+            ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
+            if (ret == ESP_OK) {
+                vTaskDelay(pdMS_TO_TICKS(50));
+                ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &verify_config2, 1);
+                if (ret == ESP_OK) {
+                    ESP_LOGI(TAG, "CONFIG2 after retry: 0x%02X", verify_config2);
+                }
+            }
+        }
+    }
 
     // Configure CONFIG3: Default settings
     uint8_t config3 = 0x00;
