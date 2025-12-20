@@ -90,15 +90,20 @@
 #define HV_ADC_VREF_ANALOG        0x03  // Analog supply
 
 // Configuration register 2 bits
-#define HV_ADC_CONFIG2_IDAC_MASK  0xE0
-#define HV_ADC_CONFIG2_IDAC_SHIFT 5
-#define HV_ADC_CONFIG2_PSW_MASK   0x18
-#define HV_ADC_CONFIG2_PSW_SHIFT  3
-#define HV_ADC_CONFIG2_FIR_MASK   0x07
+#define HV_ADC_CONFIG2_DRDY       (1 << 7)  // Data ready flag (read-only)
+#define HV_ADC_CONFIG2_DCNT       (1 << 6)  // Data counter enable
+#define HV_ADC_CONFIG2_CRC_MASK   0x30
+#define HV_ADC_CONFIG2_CRC_SHIFT  4
+#define HV_ADC_CONFIG2_BCS        (1 << 3)  // Burn-out current sources
+#define HV_ADC_CONFIG2_IDAC_MASK  0x07
+#define HV_ADC_CONFIG2_IDAC_SHIFT 0
 
 // Configuration register 3 bits
-#define HV_ADC_CONFIG3_DRDYM      (1 << 3)  // Data ready mode
-#define HV_ADC_CONFIG3_RESERVED    0x07
+#define HV_ADC_CONFIG3_I1MUX_MASK 0xE0
+#define HV_ADC_CONFIG3_I1MUX_SHIFT 5
+#define HV_ADC_CONFIG3_I2MUX_MASK 0x1C
+#define HV_ADC_CONFIG3_I2MUX_SHIFT 2
+#define HV_ADC_CONFIG3_RESERVED   0x03
 
 /**
  * @brief Initialize the HV ADC (ADS112C04)

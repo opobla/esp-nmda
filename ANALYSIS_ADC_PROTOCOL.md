@@ -2,12 +2,15 @@
 
 ## Fecha: 2025-12-20
 
-## Problema
+## Problema Inicial
 El ADC ADS112C04 no realiza conversiones. DRDY nunca se activa y todas las lecturas devuelven 0.
 
-## Causa Raíz Identificada
+---
 
-Las funciones `hv_adc_write_register()` y `hv_adc_read_register()` **NO implementan correctamente el protocolo del ADS112C04**.
+## Causa Raíz #1: Protocolo WREG/RREG Incorrecto ✅ RESUELTO
+
+### Problema
+Las funciones `hv_adc_write_register()` y `hv_adc_read_register()` **NO implementaban correctamente el protocolo del ADS112C04**.
 
 ### Protocolo Correcto según Datasheet (sección 8.5.3)
 
@@ -46,7 +49,7 @@ START → [0x48+W] → [0x24] → REPEATED START → [0x48+R] → [Data] → STO
                  0x20 | (1<<2) = 0x24
 ```
 
-### Código Actual (INCORRECTO)
+### Código Anterior (INCORRECTO)
 
 ```c
 static esp_err_t hv_adc_read_register(uint8_t reg, uint8_t *data, size_t len)
@@ -60,12 +63,12 @@ static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
 }
 ```
 
-**Problema:** Está enviando el número de registro directamente (0, 1, 2, 3) en lugar del comando WREG/RREG codificado.
+**Problema:** Estaba enviando el número de registro directamente (0, 1, 2, 3) en lugar del comando WREG/RREG codificado.
 
-### Código Correcto (A IMPLEMENTAR)
+### Código Correcto (IMPLEMENTADO)
 
 ```c
-// WREG command: 01nn nn00 where nnnn is the register number (shifted left by 2)
+// Command definitions
 #define HV_ADC_CMD_WREG 0x40  // 0100 0000
 #define HV_ADC_CMD_RREG 0x20  // 0010 0000
 
@@ -95,27 +98,108 @@ static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
 }
 ```
 
-## Por Qué CONFIG1 se Lee Como 0x11
+### Resultado de la Corrección #1
+✅ Los registros ahora se escriben y leen correctamente
+✅ CONFIG1 se lee correctamente como 0x00 (antes era 0x11)
+❌ **PERO**: DRDY todavía no se activa, conversiones devuelven 0
 
-1. Se intenta escribir `CONFIG1 = 0x00` enviando `[0x01, 0x00]` por I2C
-2. El ADC interpreta `0x01` como un **comando inválido** (no es WREG ni RREG)
-3. El registro no se actualiza
-4. Al leer CONFIG1, se envía `[0x01]` que también es inválido
-5. El ADC probablemente devuelve un valor por defecto o el último valor válido (0x11)
+---
 
-## Por Qué DRDY Nunca se Activa
+## Causa Raíz #2: CONFIG2 DCNT Bit No Habilitado ✅ RESUELTO
 
-1. Los registros de configuración nunca se escriben correctamente
-2. El ADC no está configurado adecuadamente
-3. Los comandos START/SYNC pueden no estar iniciando conversiones porque la configuración es incorrecta
-4. Sin configuración válida, el ADC no puede realizar conversiones
+### Problema
+Aunque los registros ahora se escriben correctamente, **DRDY nunca se activaba** porque CONFIG2 estaba mal configurado.
 
-## Solución
+### Análisis
+Según el datasheet ADS112C04 sección 8.6.2.3 "Data Ready by Reading":
 
-Implementar correctamente el protocolo WREG/RREG del ADS112C04 en las funciones `hv_adc_read_register` y `hv_adc_write_register`.
+**CONFIG2 Register (0x02)**
+- **Bit 7 (DRDY)**: Data Ready flag (read-only)
+  - `1` = Nueva conversión completada, datos listos
+  - `0` = No hay datos nuevos
+  - **IMPORTANTE**: Este bit solo es accesible si DCNT=1
+
+- **Bit 6 (DCNT)**: Data Counter Enable
+  - `0` = DRDY solo disponible en pin físico DRDY
+  - **`1` = DRDY disponible en CONFIG2 bit 7 (lectura por I2C)** ← ¡Necesario para polling!
+
+- Bits 5-4: CRC mode (00 = disabled)
+- Bit 3: BCS = Burn-out current sources
+- Bits 2-0: IDAC current setting
+
+### Código Anterior (INCORRECTO)
+
+```c
+// Configure CONFIG2: Default settings (IDAC off, power switch default, no FIR)
+uint8_t config2 = 0x00;  // ❌ DCNT=0, DRDY no disponible en I2C!
+ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
+```
+
+**Problema:** Con CONFIG2=0x00, el bit DCNT está en 0, por lo que:
+1. DRDY solo aparece en el pin físico DRDY (no conectado)
+2. El polling por I2C de CONFIG2 bit 7 siempre devuelve 0
+3. El software nunca detecta cuando hay datos listos
+
+### Código Correcto (IMPLEMENTADO)
+
+```c
+// Configure CONFIG2: Enable data counter (DCNT=1, bit 6) to make DRDY available in CONFIG2 bit 7
+// According to datasheet section 8.6.2.3:
+// - Bit 7 (DRDY): Data ready flag (read-only, set by ADC when conversion complete)
+// - Bit 6 (DCNT): Data counter enable (1 = enable, makes DRDY available in bit 7)
+// - Bits 5-4: CRC mode (00 = disabled)
+// - Bit 3: BCS = 0 (burn-out current sources off)
+// - Bits 2-0: IDAC current setting (000 = off)
+uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
+ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
+```
+
+Con **CONFIG2 = 0x40** (DCNT=1):
+- ✅ DRDY flag se actualiza en CONFIG2 bit 7 tras cada conversión
+- ✅ El polling por I2C de `hv_adc_is_ready()` funciona correctamente
+- ✅ El software puede detectar cuando hay datos disponibles
+
+### Actualización de Definiciones
+
+También se corrigieron las definiciones de CONFIG2/CONFIG3 en `hv_adc.h` para coincidir con el datasheet:
+
+```c
+// Configuration register 2 bits
+#define HV_ADC_CONFIG2_DRDY       (1 << 7)  // Data ready flag (read-only)
+#define HV_ADC_CONFIG2_DCNT       (1 << 6)  // Data counter enable ← ¡Clave!
+#define HV_ADC_CONFIG2_CRC_MASK   0x30
+#define HV_ADC_CONFIG2_CRC_SHIFT  4
+#define HV_ADC_CONFIG2_BCS        (1 << 3)  // Burn-out current sources
+#define HV_ADC_CONFIG2_IDAC_MASK  0x07
+#define HV_ADC_CONFIG2_IDAC_SHIFT 0
+```
+
+---
+
+## Resultado Final Esperado
+
+Con ambas correcciones aplicadas:
+1. ✅ Registros se escriben y leen con protocolo WREG/RREG correcto
+2. ✅ CONFIG2 tiene DCNT=1, habilitando DRDY en bit 7
+3. ✅ Las conversiones deberían completarse correctamente
+4. ✅ El bit DRDY debería activarse tras cada conversión
+5. ✅ Las lecturas deberían devolver valores reales en lugar de 0
+
+---
 
 ## Referencias
 
-- ADS112C04 Datasheet, sección 8.5.3: "Serial Interface"
-- Tabla 8-7: "Command Byte Structure"
+- **ADS112C04 Datasheet**:
+  - Sección 8.5.3: "Serial Interface" (protocolo WREG/RREG)
+  - Sección 8.5.3.3: "RREG Command"
+  - Sección 8.5.3.4: "WREG Command"
+  - Sección 8.6.2.3: "Data Ready by Reading" (CONFIG2 DCNT bit)
+  - Tabla 8-7: "Command Byte Structure"
+  - Tabla 8-8: "Register Map"
 
+---
+
+## Commits Relacionados
+
+1. `b3ee325` - fix: Implement correct WREG/RREG protocol for ADS112C04
+2. `[nuevo]` - fix: Enable DRDY flag in CONFIG2 register

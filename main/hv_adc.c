@@ -209,8 +209,14 @@ esp_err_t hv_adc_init(void)
         return ret;
     }
 
-    // Configure CONFIG2: Default settings (IDAC off, power switch default, no FIR)
-    uint8_t config2 = 0x00;
+    // Configure CONFIG2: Enable data counter (DCNT=1, bit 6) to make DRDY available in CONFIG2 bit 7
+    // According to datasheet section 8.6.2.3:
+    // - Bit 7 (DRDY): Data ready flag (read-only, set by ADC when conversion complete)
+    // - Bit 6 (DCNT): Data counter enable (1 = enable, makes DRDY available in bit 7)
+    // - Bits 5-4: CRC mode (00 = disabled)
+    // - Bit 3: BCS = 0 (burn-out current sources off)
+    // - Bits 2-0: IDAC current setting (000 = off)
+    uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG2: %s", esp_err_to_name(ret));
