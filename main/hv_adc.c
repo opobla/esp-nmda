@@ -233,15 +233,15 @@ esp_err_t hv_adc_init(void)
                  config0, verify_config0, (config0 == verify_config0) ? "✓" : "✗");
     }
 
-    // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, Internal VREF, TS=0 (normal mode)
-    // IMPORTANT: TS bit (bit 0) must be 0 for normal ADC conversions
-    // TS=1 puts ADC in temperature sensor mode only
+    // Configure CONFIG1: Data rate = 20 SPS, Single-shot mode, External VREF
+    // NOTE: Using EXTERNAL VREF as per hardware design
+    // CONFIG1 bits: [DR(3)][CM(2)][BCS(1)][VREF(2)]
+    // VREF bits 1-0: 0x01 = External reference
     uint8_t config1 = (HV_ADC_DR_20SPS << HV_ADC_CONFIG1_DR_SHIFT) |
                       (HV_ADC_CM_SINGLE << HV_ADC_CONFIG1_CM_SHIFT) |
-                      (HV_ADC_VREF_INTERNAL);
-    // Ensure TS bit is 0 (temperature sensor mode disabled)
-    config1 &= ~0x01;  // Clear bit 0 (TS bit)
-    ESP_LOGI(TAG, "Writing CONFIG1: 0x%02X (DR=20SPS, CM=single, VREF=internal, TS=0)", config1);
+                      (HV_ADC_VREF_EXTERNAL);
+    // config1 should now be: DR=0x00<<5 | CM=0x00<<3 | VREF=0x01 = 0x01
+    ESP_LOGI(TAG, "Writing CONFIG1: 0x%02X (DR=20SPS, CM=single, VREF=external)", config1);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG1, config1);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write CONFIG1: %s", esp_err_to_name(ret));
@@ -318,17 +318,13 @@ esp_err_t hv_adc_init(void)
 
     ESP_LOGI(TAG, "ADC configured: CONFIG0=0x%02X, CONFIG1=0x%02X", read_config0, read_config1);
     
-    // Verify TS bit is 0 (temperature sensor mode should be disabled for normal conversions)
-    if (read_config1 & 0x01) {
-        ESP_LOGW(TAG, "WARNING: TS bit is set in CONFIG1 (0x%02X)! ADC is in temperature sensor mode.", read_config1);
-        ESP_LOGW(TAG, "This will prevent normal ADC conversions. Clearing TS bit...");
-        read_config1 &= ~0x01;  // Clear TS bit
-        ret = hv_adc_write_register(HV_ADC_REG_CONFIG1, read_config1);
-        if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "TS bit cleared. CONFIG1 now: 0x%02X", read_config1);
-        }
+    // Verify VREF is set to external (bits 1-0 = 0x01)
+    uint8_t vref_setting = read_config1 & HV_ADC_CONFIG1_VREF_MASK;
+    if (vref_setting == HV_ADC_VREF_EXTERNAL) {
+        ESP_LOGI(TAG, "✓ VREF correctly set to EXTERNAL (0x%02X)", vref_setting);
     } else {
-        ESP_LOGI(TAG, "TS bit is correctly cleared (normal ADC mode)");
+        ESP_LOGW(TAG, "⚠ VREF setting mismatch: expected 0x%02X (EXTERNAL), got 0x%02X", 
+                 HV_ADC_VREF_EXTERNAL, vref_setting);
     }
     
     // Verify all configuration registers
