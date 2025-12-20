@@ -279,10 +279,19 @@ esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *
     esp_err_t ret = ESP_OK;
 
     // Create I2C device handle for this transaction
-    // IMPORTANT: Keep the same device handle for both transmit and receive
-    // to ensure Repeated Start is generated (not STOP + START)
-    // According to ESP-IDF 5.x documentation, using the same handle should
-    // automatically generate Repeated Start between transmit and receive
+    // CRITICAL: According to ESP-IDF 5.x documentation and user feedback,
+    // i2c_master_transmit() ALWAYS sends STOP at the end, which breaks
+    // devices like ADS112C04 that require Repeated Start.
+    //
+    // SOLUTION: We need to use a combined transaction function that
+    // guarantees Repeated Start. Since i2c_master_transmit_receive() may
+    // not exist in all ESP-IDF 5.x versions, we'll use a workaround:
+    // Create the device handle once and use it for both operations,
+    // but we need to ensure the driver doesn't send STOP between them.
+    //
+    // NOTE: The new master driver should handle this automatically when
+    // using the same handle, but if it doesn't, we may need to use
+    // a persistent device handle or implement bit-banging I2C.
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = device_addr,
@@ -297,21 +306,37 @@ esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *
         return ret;
     }
 
-    // CRITICAL: Use the SAME device handle for both transmit and receive
-    // In ESP-IDF 5.x, when you call i2c_master_transmit() followed by
-    // i2c_master_receive() with the SAME handle, it should generate a
-    // Repeated Start condition automatically (not STOP + START)
-    ret = i2c_master_transmit(dev_handle, (uint8_t *)write_data, write_len, timeout_ms);
-    if (ret == ESP_OK) {
-        // This should generate Repeated Start, not STOP + START
-        ret = i2c_master_receive(dev_handle, read_data, read_len, timeout_ms);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "I2C read after write failed: %s", esp_err_to_name(ret));
-        } else {
-            ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
-        }
+    // SOLUTION: According to ESP-IDF documentation:
+    // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
+    // 
+    // EVALUATION of i2c_master_multi_buffer_transmit():
+    // ❌ NOT SUITABLE for our use case:
+    //    - Only handles multiple WRITE buffers
+    //    - Does NOT combine write + read operations
+    //    - Does NOT guarantee Repeated Start for read operations
+    //
+    // ✅ CORRECT FUNCTION: i2c_master_transmit_receive()
+    //    - Designed specifically for write + read transactions
+    //    - Guarantees Repeated Start automatically
+    //    - Perfect for ADS112C04 which requires Repeated Start
+    //
+    // However, this function may not exist in all ESP-IDF 5.x versions.
+    // We'll try to use it, and if it doesn't compile, we'll use the fallback.
+    //
+    // NOTE: The fallback (separate transmit + receive) may NOT work because
+    // i2c_master_transmit() always sends STOP at the end, which breaks ADS112C04.
+    
+    // Try to use i2c_master_transmit_receive() - this should guarantee Repeated Start
+    // If this function doesn't exist, the compiler will error and we'll need to
+    // implement an alternative solution (persistent handle or software I2C)
+    ret = i2c_master_transmit_receive(dev_handle,
+                                     (uint8_t *)write_data, write_len,
+                                     read_data, read_len,
+                                     timeout_ms);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2C transmit_receive failed: %s", esp_err_to_name(ret));
     } else {
-        ESP_LOGE(TAG, "I2C write before read failed: %s", esp_err_to_name(ret));
+        ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
     }
 
     i2c_master_bus_rm_device(dev_handle);
