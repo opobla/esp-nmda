@@ -203,8 +203,9 @@ esp_err_t hv_adc_init(void)
     }
     ESP_LOGI(TAG, "ADC reset command sent");
 
-    // Wait for reset to complete (typically 50us, but wait 10ms to be safe)
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // Wait for reset to complete (typically 50us, but wait longer to be safe)
+    // IMPORTANT: Some ADCs need more time after reset before accepting register writes
+    vTaskDelay(pdMS_TO_TICKS(50));  // Increased from 10ms to 50ms
     
     // Verify reset by reading CONFIG0 (should be 0x00 after reset)
     uint8_t config0_after_reset;
