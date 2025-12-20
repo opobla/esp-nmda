@@ -6,7 +6,6 @@
 #include <string.h>
 #include "esp32-libs.h"
 #include "driver/i2c_master.h"
-#include "driver/i2c.h"  // For low-level I2C API
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -262,7 +261,7 @@ esp_err_t i2c_bus_write_read(uint8_t device_addr, const uint8_t *write_data, siz
 esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
                                              uint8_t *read_data, size_t read_len, int timeout_ms)
 {
-    if (!i2c_initialized) {
+    if (!i2c_initialized || i2c_bus_handle == NULL) {
         ESP_LOGE(TAG, "I2C bus not initialized");
         return ESP_ERR_INVALID_STATE;
     }
@@ -277,55 +276,47 @@ esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *
         return ESP_ERR_TIMEOUT;
     }
 
-    // Use low-level I2C API to guarantee Repeated Start
-    // This API uses i2c_port_t (I2C_NUM_0) directly
-    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-    if (cmd == NULL) {
-        ESP_LOGE(TAG, "Failed to create I2C command link");
+    esp_err_t ret = ESP_OK;
+
+    // Create I2C device handle for this transaction
+    // IMPORTANT: Keep the same device handle for both transmit and receive
+    // to ensure Repeated Start is generated (not STOP + START)
+    // According to ESP-IDF 5.x documentation, using the same handle should
+    // automatically generate Repeated Start between transmit and receive
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = device_addr,
+        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
+    };
+
+    i2c_master_dev_handle_t dev_handle;
+    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
         xSemaphoreGive(i2c_mutex);
-        return ESP_ERR_NO_MEM;
+        return ret;
     }
 
-    // Build the transaction with explicit Repeated Start:
-    // START -> [Address+W] -> [Write data] -> REPEATED START -> [Address+R] -> [Read data] -> STOP
-    
-    // Start condition
-    i2c_master_start(cmd);
-    
-    // Write phase: Address + Write bit
-    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
-    
-    // Write data
-    i2c_master_write(cmd, (uint8_t *)write_data, write_len, true);
-    
-    // REPEATED START (not STOP + START)
-    i2c_master_start(cmd);
-    
-    // Read phase: Address + Read bit
-    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_READ, true);
-    
-    // Read data (send NACK on last byte, ACK on others)
-    if (read_len > 1) {
-        i2c_master_read(cmd, read_data, read_len - 1, I2C_MASTER_ACK);
-    }
-    i2c_master_read_byte(cmd, read_data + read_len - 1, I2C_MASTER_NACK);
-    
-    // Stop condition
-    i2c_master_stop(cmd);
-    
-    // Execute the transaction
-    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(timeout_ms));
-    
-    // Clean up
-    i2c_cmd_link_delete(cmd);
-    xSemaphoreGive(i2c_mutex);
-    
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "I2C write_read_repeated_start failed: %s", esp_err_to_name(ret));
+    // CRITICAL: Use the SAME device handle for both transmit and receive
+    // In ESP-IDF 5.x, when you call i2c_master_transmit() followed by
+    // i2c_master_receive() with the SAME handle, it should generate a
+    // Repeated Start condition automatically (not STOP + START)
+    ret = i2c_master_transmit(dev_handle, (uint8_t *)write_data, write_len, timeout_ms);
+    if (ret == ESP_OK) {
+        // This should generate Repeated Start, not STOP + START
+        ret = i2c_master_receive(dev_handle, read_data, read_len, timeout_ms);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "I2C read after write failed: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
+        }
     } else {
-        ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
+        ESP_LOGE(TAG, "I2C write before read failed: %s", esp_err_to_name(ret));
     }
-    
+
+    i2c_master_bus_rm_device(dev_handle);
+    xSemaphoreGive(i2c_mutex);
+
     return ret;
 }
 
