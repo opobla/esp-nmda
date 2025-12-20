@@ -6,6 +6,7 @@
 #include <string.h>
 #include "esp32-libs.h"
 #include "driver/i2c_master.h"
+#include "driver/i2c.h"  // For low-level I2C API
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -255,6 +256,76 @@ esp_err_t i2c_bus_write_read(uint8_t device_addr, const uint8_t *write_data, siz
     i2c_master_bus_rm_device(dev_handle);
     xSemaphoreGive(i2c_mutex);
 
+    return ret;
+}
+
+esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
+                                             uint8_t *read_data, size_t read_len, int timeout_ms)
+{
+    if (!i2c_initialized) {
+        ESP_LOGE(TAG, "I2C bus not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (write_data == NULL || write_len == 0 || read_data == NULL || read_len == 0) {
+        ESP_LOGE(TAG, "Invalid write_read_repeated_start parameters");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to take I2C mutex");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // Use low-level I2C API to guarantee Repeated Start
+    // This API uses i2c_port_t (I2C_NUM_0) directly
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    if (cmd == NULL) {
+        ESP_LOGE(TAG, "Failed to create I2C command link");
+        xSemaphoreGive(i2c_mutex);
+        return ESP_ERR_NO_MEM;
+    }
+
+    // Build the transaction with explicit Repeated Start:
+    // START -> [Address+W] -> [Write data] -> REPEATED START -> [Address+R] -> [Read data] -> STOP
+    
+    // Start condition
+    i2c_master_start(cmd);
+    
+    // Write phase: Address + Write bit
+    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_WRITE, true);
+    
+    // Write data
+    i2c_master_write(cmd, (uint8_t *)write_data, write_len, true);
+    
+    // REPEATED START (not STOP + START)
+    i2c_master_start(cmd);
+    
+    // Read phase: Address + Read bit
+    i2c_master_write_byte(cmd, (device_addr << 1) | I2C_MASTER_READ, true);
+    
+    // Read data (send NACK on last byte, ACK on others)
+    if (read_len > 1) {
+        i2c_master_read(cmd, read_data, read_len - 1, I2C_MASTER_ACK);
+    }
+    i2c_master_read_byte(cmd, read_data + read_len - 1, I2C_MASTER_NACK);
+    
+    // Stop condition
+    i2c_master_stop(cmd);
+    
+    // Execute the transaction
+    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, pdMS_TO_TICKS(timeout_ms));
+    
+    // Clean up
+    i2c_cmd_link_delete(cmd);
+    xSemaphoreGive(i2c_mutex);
+    
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "I2C write_read_repeated_start failed: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
+    }
+    
     return ret;
 }
 

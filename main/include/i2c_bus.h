@@ -65,7 +65,25 @@ esp_err_t i2c_bus_read(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_
  * @return ESP_OK on success, error code otherwise
  */
 esp_err_t i2c_bus_write_read(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
-                             uint8_t *read_data, size_t read_len, int timeout_ms);
+                              uint8_t *read_data, size_t read_len, int timeout_ms);
+
+/**
+ * @brief Write then read with explicit Repeated Start (for devices that require it)
+ * 
+ * This function uses the low-level I2C API to guarantee a Repeated Start condition
+ * between the write and read phases. This is critical for devices like ADS112C04
+ * that discard commands if a STOP is sent instead of a Repeated Start.
+ * 
+ * @param device_addr I2C device address (7-bit)
+ * @param write_data Data to write
+ * @param write_len Length of write data
+ * @param read_data Buffer to store read data
+ * @param read_len Length of read data
+ * @param timeout_ms Timeout in milliseconds
+ * @return ESP_OK on success
+ */
+esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
+                                             uint8_t *read_data, size_t read_len, int timeout_ms);
 
 /**
  * @brief Scan I2C bus for devices

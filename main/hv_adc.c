@@ -54,7 +54,9 @@ static esp_err_t hv_adc_read_register(uint8_t reg, uint8_t *data, size_t len)
     ESP_LOGI(TAG, "RREG reg %d: cmd=0x%02X", reg, rreg_cmd);
     
     // Send RREG command, then read response
-    esp_err_t ret = i2c_bus_write_read(HV_ADC_I2C_ADDR, &rreg_cmd, 1, data, len, 1000);
+    // CRITICAL: Use write_read_repeated_start to guarantee Repeated Start condition
+    // ADS112C04 requires Repeated Start - if STOP is sent, it discards the RREG command
+    esp_err_t ret = i2c_bus_write_read_repeated_start(HV_ADC_I2C_ADDR, &rreg_cmd, 1, data, len, 1000);
     
     if (ret == ESP_OK) {
         ESP_LOGI(TAG, "RREG reg %d: read OK, data[0]=0x%02X", reg, data[0]);
