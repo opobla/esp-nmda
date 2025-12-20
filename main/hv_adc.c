@@ -51,16 +51,15 @@ static esp_err_t hv_adc_read_register(uint8_t reg, uint8_t *data, size_t len)
     // Build RREG command: 0x20 | (reg << 2) | ((len - 1) & 0x03)
     uint8_t rreg_cmd = HV_ADC_CMD_RREG | (reg << 2) | ((len - 1) & 0x03);
     
-    ESP_LOGD(TAG, "RREG: Reading %d register(s) starting at reg %d, command=0x%02X", 
-             len, reg, rreg_cmd);
+    ESP_LOGI(TAG, "RREG reg %d: cmd=0x%02X", reg, rreg_cmd);
     
     // Send RREG command, then read response
     esp_err_t ret = i2c_bus_write_read(HV_ADC_I2C_ADDR, &rreg_cmd, 1, data, len, 1000);
     
     if (ret == ESP_OK) {
-        ESP_LOGD(TAG, "RREG: Successfully read register %d: 0x%02X", reg, data[0]);
+        ESP_LOGI(TAG, "RREG reg %d: read OK, data[0]=0x%02X", reg, data[0]);
     } else {
-        ESP_LOGE(TAG, "RREG: Failed to read register %d: %s", reg, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "RREG reg %d: FAILED: %s", reg, esp_err_to_name(ret));
     }
     
     return ret;
@@ -97,16 +96,15 @@ static esp_err_t hv_adc_write_register(uint8_t reg, uint8_t data)
     // Prepare data: [WREG command, data byte]
     uint8_t write_buffer[2] = {wreg_cmd, data};
     
-    ESP_LOGD(TAG, "WREG: Writing to register %d, command=0x%02X, data=0x%02X", 
-             reg, wreg_cmd, data);
+    ESP_LOGI(TAG, "WREG reg %d: cmd=0x%02X, data=0x%02X", reg, wreg_cmd, data);
     
     // Send WREG command and data in one transaction
     esp_err_t ret = i2c_bus_write(HV_ADC_I2C_ADDR, NULL, 0, write_buffer, 2, 1000);
     
     if (ret == ESP_OK) {
-        ESP_LOGD(TAG, "WREG: Successfully wrote 0x%02X to register %d", data, reg);
+        ESP_LOGI(TAG, "WREG reg %d: write OK", reg);
     } else {
-        ESP_LOGE(TAG, "WREG: Failed to write register %d: %s", reg, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "WREG reg %d: FAILED: %s", reg, esp_err_to_name(ret));
     }
     
     return ret;
@@ -219,7 +217,7 @@ esp_err_t hv_adc_init(void)
     // - Bits 2-0: IDAC current setting (000 = off)
     uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
     ESP_LOGI(TAG, "Writing CONFIG2: 0x%02X (DCNT=1, DRDY polling enabled)", config2);
-    ESP_LOGD(TAG, "WREG CONFIG2 command will be: 0x%02X, data: 0x%02X", 
+    ESP_LOGI(TAG, "DEBUG: WREG CONFIG2 command will be: 0x%02X, data: 0x%02X", 
              (HV_ADC_CMD_WREG | (HV_ADC_REG_CONFIG2 << 2)), config2);
     ret = hv_adc_write_register(HV_ADC_REG_CONFIG2, config2);
     if (ret != ESP_OK) {
@@ -265,7 +263,7 @@ esp_err_t hv_adc_init(void)
     uint8_t read_config2, read_config3;
     vTaskDelay(pdMS_TO_TICKS(10));  // Wait 10ms for CONFIG2 write to settle
     ret = hv_adc_read_register(HV_ADC_REG_CONFIG2, &read_config2, 1);
-    ESP_LOGD(TAG, "RREG CONFIG2 command: 0x%02X, read result: 0x%02X", 
+    ESP_LOGI(TAG, "DEBUG: RREG CONFIG2 command: 0x%02X, read result: 0x%02X", 
              (HV_ADC_CMD_RREG | (HV_ADC_REG_CONFIG2 << 2)), read_config2);
     if (ret == ESP_OK) {
         ret = hv_adc_read_register(HV_ADC_REG_CONFIG3, &read_config3, 1);

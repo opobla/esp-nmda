@@ -300,10 +300,7 @@ esp_err_t i2c_bus_scan(void)
         i2c_master_bus_rm_device(dev_handle);
     }
 
-    if (found_count == 0) {
-        ESP_LOGW(TAG, "No I2C devices found on bus");
-        ESP_LOGW(TAG, "Check connections: SDA=GPIO%d, SCL=GPIO%d", I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
-    } else {
+    if (found_count > 0) {
         ESP_LOGI(TAG, "Found %d device(s) on I2C bus", found_count);
     }
 
