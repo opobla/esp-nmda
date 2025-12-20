@@ -215,6 +215,7 @@ esp_err_t hv_adc_init(void)
     // - Bits 5-4: CRC mode (00 = disabled)
     // - Bit 3: BCS = 0 (burn-out current sources off)
     // - Bits 2-0: IDAC current setting (000 = off)
+    ESP_LOGI(TAG, ">>> About to write CONFIG2 <<<");
     uint8_t config2 = HV_ADC_CONFIG2_DCNT;  // 0x40 - Enable data counter to get DRDY in CONFIG2
     ESP_LOGI(TAG, "Writing CONFIG2: 0x%02X (DCNT=1, DRDY polling enabled)", config2);
     ESP_LOGI(TAG, "DEBUG: WREG CONFIG2 command will be: 0x%02X, data: 0x%02X", 
