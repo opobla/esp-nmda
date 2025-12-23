@@ -88,18 +88,20 @@ void app_main(void)
     if (i2c_ret == ESP_OK) {
         ESP_LOGI("APP_MAIN", "I2C bus initialized successfully");
         // Scan I2C bus to see what devices are connected
-        i2c_bus_scan();
+        // DISABLED: I2C bus scan disabled
+        // i2c_bus_scan();
         
 #ifdef CONFIG_ENABLE_HV_SUPPORT
         // Verify ADC is present on I2C bus
-        ESP_LOGI("APP_MAIN", "Checking for HV ADC (ADS112C04) at address 0x%02X...", 0x48);
-        uint8_t test_reg = 0x00;  // CONFIG0 register
+        // ADS112C04 uses command-based protocol, so we need to send RREG command first
+        ESP_LOGI("APP_MAIN", "Checking for HV ADC (ADS112C04) at address 0x%02X...", HV_ADC_I2C_ADDR_DEFAULT);
+        uint8_t rreg_cmd = 0x20;  // RREG command for register 0 (CONFIG0)
         uint8_t test_data;
-        esp_err_t adc_check = i2c_bus_read(0x48, &test_reg, 1, &test_data, 1, 100);
+        esp_err_t adc_check = i2c_bus_write_read_repeated_start(HV_ADC_I2C_ADDR_DEFAULT, &rreg_cmd, 1, &test_data, 1, 100);
         if (adc_check == ESP_OK) {
             ESP_LOGI("APP_MAIN", "HV ADC detected! CONFIG0 register read: 0x%02X", test_data);
         } else {
-            ESP_LOGW("APP_MAIN", "HV ADC not detected at address 0x48: %s", esp_err_to_name(adc_check));
+            ESP_LOGW("APP_MAIN", "HV ADC not detected at address 0x%02X: %s", HV_ADC_I2C_ADDR_DEFAULT, esp_err_to_name(adc_check));
             ESP_LOGW("APP_MAIN", "Check I2C connections and verify ADC is powered");
         }
 #endif

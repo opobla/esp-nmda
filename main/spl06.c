@@ -29,7 +29,9 @@ static bool calib_loaded = false;
 
 static esp_err_t spl06_read_register(uint8_t reg, uint8_t *data, size_t len)
 {
-    esp_err_t ret = i2c_bus_read(SPL06_I2C_ADDR, &reg, 1, data, len, 1000);
+    // SPL06 uses standard I2C protocol: write register address, then read data
+    // Use write_read_repeated_start to guarantee Repeated Start condition
+    esp_err_t ret = i2c_bus_write_read_repeated_start(SPL06_I2C_ADDR, &reg, 1, data, len, 1000);
     
     // Debug: log register reads for temperature registers
     if (reg >= SPL06_REG_TMP_B2 && reg <= SPL06_REG_TMP_B0 && len <= 3) {
@@ -48,7 +50,9 @@ static esp_err_t spl06_read_register(uint8_t reg, uint8_t *data, size_t len)
 
 static esp_err_t spl06_write_register(uint8_t reg, uint8_t data)
 {
-    return i2c_bus_write(SPL06_I2C_ADDR, &reg, 1, &data, 1, 1000);
+    // SPL06 uses standard I2C protocol: [register_address][data]
+    uint8_t buffer[2] = {reg, data};
+    return i2c_bus_write(SPL06_I2C_ADDR, buffer, 2, 1000);
 }
 
 static esp_err_t spl06_read_calibration(void)

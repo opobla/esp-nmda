@@ -21,12 +21,10 @@ void hv_adc_monitor_task(void *parameters)
 
     while (true) {
         // Read all 4 channels
-        bool all_channels_ok = true;
         for (uint8_t ch = 0; ch < 4; ch++) {
             esp_err_t ret = hv_adc_read_channel(ch, &channel_voltages[ch]);
             if (ret != ESP_OK) {
                 ESP_LOGW("HV_ADC_MONITOR", "Failed to read channel %d: %s", ch, esp_err_to_name(ret));
-                all_channels_ok = false;
             }
         }
 
