@@ -8,6 +8,9 @@
 #include "driver/i2c_master.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+#include "hv_adc.h"  // For HV_ADC_I2C_ADDR_DEFAULT
+#endif
 
 static const char *TAG = "I2C_BUS";
 
@@ -21,6 +24,13 @@ static const char *TAG = "I2C_BUS";
 static i2c_master_bus_handle_t i2c_bus_handle = NULL;
 static SemaphoreHandle_t i2c_mutex = NULL;
 static bool i2c_initialized = false;
+
+// Persistent device handles (created once, reused for all transactions)
+// This eliminates overhead of creating/deleting handles and may help with Repeated Start
+static i2c_master_dev_handle_t i2c_adc_handle = NULL;      // ADS112C04 at HV_ADC_I2C_ADDR_DEFAULT
+#ifdef CONFIG_ENABLE_SPL06
+static i2c_master_dev_handle_t i2c_spl06_handle = NULL;    // SPL06 at CONFIG_SPL06_I2C_ADDRESS
+#endif
 
 esp_err_t i2c_bus_init(void)
 {
@@ -56,8 +66,46 @@ esp_err_t i2c_bus_init(void)
         return ret;
     }
 
+    // Create persistent device handles for known I2C devices
+    // These handles are created once and reused for all transactions, eliminating
+    // overhead and potentially improving Repeated Start behavior
+    
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+    // Create handle for ADS112C04 ADC
+    i2c_device_config_t adc_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = HV_ADC_I2C_ADDR_DEFAULT,
+        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
+    };
+    ret = i2c_master_bus_add_device(i2c_bus_handle, &adc_cfg, &i2c_adc_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to create persistent handle for ADC (0x%02X): %s", 
+                 HV_ADC_I2C_ADDR_DEFAULT, esp_err_to_name(ret));
+        // Non-fatal: handle will be created on-demand if needed
+    } else {
+        ESP_LOGI(TAG, "Created persistent handle for ADC (0x%02X)", HV_ADC_I2C_ADDR_DEFAULT);
+    }
+#endif
+
+#ifdef CONFIG_ENABLE_SPL06
+    // Create handle for SPL06 sensor
+    i2c_device_config_t spl06_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = CONFIG_SPL06_I2C_ADDRESS,
+        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
+    };
+    ret = i2c_master_bus_add_device(i2c_bus_handle, &spl06_cfg, &i2c_spl06_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to create persistent handle for SPL06 (0x%02X): %s", 
+                 CONFIG_SPL06_I2C_ADDRESS, esp_err_to_name(ret));
+        // Non-fatal: handle will be created on-demand if needed
+    } else {
+        ESP_LOGI(TAG, "Created persistent handle for SPL06 (0x%02X)", CONFIG_SPL06_I2C_ADDRESS);
+    }
+#endif
+
     i2c_initialized = true;
-    ESP_LOGI(TAG, "I2C bus initialized successfully (SDA: GPIO%d, SCL: GPIO%d, Default Speed: %d Hz)",
+    ESP_LOGI(TAG, "I2C bus initialized successfully (SDA: GPIO%d, SCL: GPIO%d, Speed: %d Hz)",
              I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, CONFIG_I2C_BUS_SPEED);
 
     return ESP_OK;
@@ -68,6 +116,21 @@ esp_err_t i2c_bus_deinit(void)
     if (!i2c_initialized) {
         return ESP_OK;
     }
+
+    // Remove persistent device handles (though system never terminates, this is for completeness)
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+    if (i2c_adc_handle != NULL) {
+        i2c_master_bus_rm_device(i2c_adc_handle);
+        i2c_adc_handle = NULL;
+    }
+#endif
+
+#ifdef CONFIG_ENABLE_SPL06
+    if (i2c_spl06_handle != NULL) {
+        i2c_master_bus_rm_device(i2c_spl06_handle);
+        i2c_spl06_handle = NULL;
+    }
+#endif
 
     if (i2c_bus_handle != NULL) {
         esp_err_t ret = i2c_del_master_bus(i2c_bus_handle);
@@ -88,12 +151,51 @@ esp_err_t i2c_bus_deinit(void)
     return ESP_OK;
 }
 
-esp_err_t i2c_bus_write(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_addr_len,
-                        const uint8_t *data, size_t data_len, int timeout_ms)
+// Helper function to get persistent device handle or create on-demand
+static i2c_master_dev_handle_t i2c_get_device_handle(uint8_t device_addr)
+{
+    // Check if we have a persistent handle for this device
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+    if (device_addr == HV_ADC_I2C_ADDR_DEFAULT && i2c_adc_handle != NULL) {
+        return i2c_adc_handle;
+    }
+#endif
+
+#ifdef CONFIG_ENABLE_SPL06
+    if (device_addr == CONFIG_SPL06_I2C_ADDRESS && i2c_spl06_handle != NULL) {
+        return i2c_spl06_handle;
+    }
+#endif
+
+    // No persistent handle found, create one on-demand (fallback)
+    // This should rarely happen if initialization was successful
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = device_addr,
+        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
+    };
+
+    i2c_master_dev_handle_t dev_handle = NULL;
+    esp_err_t ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create device handle for 0x%02X: %s", device_addr, esp_err_to_name(ret));
+        return NULL;
+    }
+    
+    ESP_LOGW(TAG, "Created on-demand handle for device 0x%02X (should use persistent handle)", device_addr);
+    return dev_handle;
+}
+
+esp_err_t i2c_bus_write(uint8_t device_addr, const uint8_t *data, size_t data_len, int timeout_ms)
 {
     if (!i2c_initialized || i2c_bus_handle == NULL) {
         ESP_LOGE(TAG, "I2C bus not initialized");
         return ESP_ERR_INVALID_STATE;
+    }
+
+    if (data == NULL || data_len == 0) {
+        ESP_LOGE(TAG, "Invalid write parameters");
+        return ESP_ERR_INVALID_ARG;
     }
 
     if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
@@ -101,55 +203,27 @@ esp_err_t i2c_bus_write(uint8_t device_addr, const uint8_t *reg_addr, size_t reg
         return ESP_ERR_TIMEOUT;
     }
 
-    esp_err_t ret = ESP_OK;
-
-    // Create I2C device handle for this transaction
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = device_addr,
-        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
-    };
-
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
+    // Get persistent device handle (or create on-demand if not available)
+    i2c_master_dev_handle_t dev_handle = i2c_get_device_handle(device_addr);
+    if (dev_handle == NULL) {
         xSemaphoreGive(i2c_mutex);
-        return ret;
+        return ESP_ERR_INVALID_STATE;
     }
 
-    // Prepare write data: register address (if provided) + data
-    size_t total_len = reg_addr_len + data_len;
-    uint8_t *write_buffer = malloc(total_len);
-    if (write_buffer == NULL) {
-        ESP_LOGE(TAG, "Failed to allocate write buffer");
-        i2c_master_bus_rm_device(dev_handle);
-        xSemaphoreGive(i2c_mutex);
-        return ESP_ERR_NO_MEM;
-    }
-
-    if (reg_addr_len > 0 && reg_addr != NULL) {
-        memcpy(write_buffer, reg_addr, reg_addr_len);
-    }
-    if (data_len > 0 && data != NULL) {
-        memcpy(write_buffer + reg_addr_len, data, data_len);
-    }
-
-    // Perform write transaction
-    ret = i2c_master_transmit(dev_handle, write_buffer, total_len, timeout_ms);
+    // Perform write transaction using persistent handle
+    // Note: Each device is responsible for constructing the complete message
+    // (e.g., SPL06: [reg_addr][data], ADS112C04: [command][data])
+    esp_err_t ret = i2c_master_transmit(dev_handle, (uint8_t *)data, data_len, timeout_ms);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C write failed: %s", esp_err_to_name(ret));
     }
 
-    free(write_buffer);
-    i2c_master_bus_rm_device(dev_handle);
     xSemaphoreGive(i2c_mutex);
 
     return ret;
 }
 
-esp_err_t i2c_bus_read(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_addr_len,
-                       uint8_t *data, size_t data_len, int timeout_ms)
+esp_err_t i2c_bus_read(uint8_t device_addr, uint8_t *data, size_t data_len, int timeout_ms)
 {
     if (!i2c_initialized || i2c_bus_handle == NULL) {
         ESP_LOGE(TAG, "I2C bus not initialized");
@@ -166,93 +240,20 @@ esp_err_t i2c_bus_read(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_
         return ESP_ERR_TIMEOUT;
     }
 
-    esp_err_t ret = ESP_OK;
-
-    // Create I2C device handle for this transaction
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = device_addr,
-        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
-    };
-
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
+    // Get persistent device handle (or create on-demand if not available)
+    i2c_master_dev_handle_t dev_handle = i2c_get_device_handle(device_addr);
+    if (dev_handle == NULL) {
         xSemaphoreGive(i2c_mutex);
-        return ret;
+        return ESP_ERR_INVALID_STATE;
     }
 
-    // If register address is provided, write it first
-    if (reg_addr_len > 0 && reg_addr != NULL) {
-        ret = i2c_master_transmit(dev_handle, (uint8_t *)reg_addr, reg_addr_len, timeout_ms);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "I2C register address write failed: %s", esp_err_to_name(ret));
-            i2c_master_bus_rm_device(dev_handle);
-            xSemaphoreGive(i2c_mutex);
-            return ret;
-        }
-    }
-
-    // Perform read transaction
-    ret = i2c_master_receive(dev_handle, data, data_len, timeout_ms);
+    // Perform read transaction using persistent handle
+    // Note: If device requires writing register address first, use i2c_bus_write_read_repeated_start()
+    esp_err_t ret = i2c_master_receive(dev_handle, data, data_len, timeout_ms);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C read failed: %s", esp_err_to_name(ret));
     }
 
-    i2c_master_bus_rm_device(dev_handle);
-    xSemaphoreGive(i2c_mutex);
-
-    return ret;
-}
-
-esp_err_t i2c_bus_write_read(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
-                              uint8_t *read_data, size_t read_len, int timeout_ms)
-{
-    if (!i2c_initialized || i2c_bus_handle == NULL) {
-        ESP_LOGE(TAG, "I2C bus not initialized");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    if (write_data == NULL || write_len == 0 || read_data == NULL || read_len == 0) {
-        ESP_LOGE(TAG, "Invalid write_read parameters");
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    if (xSemaphoreTake(i2c_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
-        ESP_LOGE(TAG, "Failed to take I2C mutex");
-        return ESP_ERR_TIMEOUT;
-    }
-
-    esp_err_t ret = ESP_OK;
-
-    // Create I2C device handle for this transaction
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = device_addr,
-        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
-    };
-
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
-        xSemaphoreGive(i2c_mutex);
-        return ret;
-    }
-
-    // Write then read in separate transactions
-    ret = i2c_master_transmit(dev_handle, (uint8_t *)write_data, write_len, timeout_ms);
-    if (ret == ESP_OK) {
-        ret = i2c_master_receive(dev_handle, read_data, read_len, timeout_ms);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "I2C read after write failed: %s", esp_err_to_name(ret));
-        }
-    } else {
-        ESP_LOGE(TAG, "I2C write before read failed: %s", esp_err_to_name(ret));
-    }
-
-    i2c_master_bus_rm_device(dev_handle);
     xSemaphoreGive(i2c_mutex);
 
     return ret;
@@ -276,70 +277,27 @@ esp_err_t i2c_bus_write_read_repeated_start(uint8_t device_addr, const uint8_t *
         return ESP_ERR_TIMEOUT;
     }
 
-    esp_err_t ret = ESP_OK;
-
-    // Create I2C device handle for this transaction
-    // CRITICAL: According to ESP-IDF 5.x documentation and user feedback,
-    // i2c_master_transmit() ALWAYS sends STOP at the end, which breaks
-    // devices like ADS112C04 that require Repeated Start.
-    //
-    // SOLUTION: We need to use a combined transaction function that
-    // guarantees Repeated Start. Since i2c_master_transmit_receive() may
-    // not exist in all ESP-IDF 5.x versions, we'll use a workaround:
-    // Create the device handle once and use it for both operations,
-    // but we need to ensure the driver doesn't send STOP between them.
-    //
-    // NOTE: The new master driver should handle this automatically when
-    // using the same handle, but if it doesn't, we may need to use
-    // a persistent device handle or implement bit-banging I2C.
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = device_addr,
-        .scl_speed_hz = CONFIG_I2C_BUS_SPEED,
-    };
-
-    i2c_master_dev_handle_t dev_handle;
-    ret = i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &dev_handle);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add I2C device: %s", esp_err_to_name(ret));
+    // Get persistent device handle (or create on-demand if not available)
+    i2c_master_dev_handle_t dev_handle = i2c_get_device_handle(device_addr);
+    if (dev_handle == NULL) {
         xSemaphoreGive(i2c_mutex);
-        return ret;
+        return ESP_ERR_INVALID_STATE;
     }
 
-    // SOLUTION: According to ESP-IDF documentation:
+    // Use i2c_master_transmit_receive() which guarantees Repeated Start
+    // According to ESP-IDF documentation:
     // https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/peripherals/i2c.html
-    // 
-    // EVALUATION of i2c_master_multi_buffer_transmit():
-    // ❌ NOT SUITABLE for our use case:
-    //    - Only handles multiple WRITE buffers
-    //    - Does NOT combine write + read operations
-    //    - Does NOT guarantee Repeated Start for read operations
-    //
-    // ✅ CORRECT FUNCTION: i2c_master_transmit_receive()
-    //    - Designed specifically for write + read transactions
-    //    - Guarantees Repeated Start automatically
-    //    - Perfect for ADS112C04 which requires Repeated Start
-    //
-    // However, this function may not exist in all ESP-IDF 5.x versions.
-    // We'll try to use it, and if it doesn't compile, we'll use the fallback.
-    //
-    // NOTE: The fallback (separate transmit + receive) may NOT work because
-    // i2c_master_transmit() always sends STOP at the end, which breaks ADS112C04.
-    
-    // Try to use i2c_master_transmit_receive() - this should guarantee Repeated Start
-    // If this function doesn't exist, the compiler will error and we'll need to
-    // implement an alternative solution (persistent handle or software I2C)
-    ret = i2c_master_transmit_receive(dev_handle,
-                                     (uint8_t *)write_data, write_len,
-                                     read_data, read_len,
-                                     timeout_ms);
+    // This function is designed specifically for write + read transactions
+    // and guarantees Repeated Start automatically, which is critical for
+    // devices like ADS112C04 that discard commands if STOP is sent instead.
+    esp_err_t ret = i2c_master_transmit_receive(dev_handle,
+                                                (uint8_t *)write_data, write_len,
+                                                read_data, read_len,
+                                                timeout_ms);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "I2C transmit_receive failed: %s", esp_err_to_name(ret));
-    } else {
-        ESP_LOGD(TAG, "I2C write_read_repeated_start: wrote %d bytes, read %d bytes", write_len, read_len);
     }
 
-    i2c_master_bus_rm_device(dev_handle);
     xSemaphoreGive(i2c_mutex);
 
     return ret;

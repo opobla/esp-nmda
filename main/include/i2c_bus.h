@@ -26,46 +26,32 @@ esp_err_t i2c_bus_deinit(void);
 /**
  * @brief Write data to an I2C device
  * 
+ * Each device is responsible for constructing the complete message buffer.
+ * For example:
+ *   - SPL06: buffer = [reg_addr][data]
+ *   - ADS112C04: buffer = [command][data] (command already includes register address)
+ * 
  * @param device_addr 7-bit I2C device address
- * @param reg_addr Register address (can be NULL if not needed)
- * @param reg_addr_len Length of register address in bytes (0 if reg_addr is NULL)
- * @param data Data to write
+ * @param data Complete message data to write (including register address/command if needed)
  * @param data_len Length of data in bytes
  * @param timeout_ms Timeout in milliseconds
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t i2c_bus_write(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_addr_len, 
-                        const uint8_t *data, size_t data_len, int timeout_ms);
+esp_err_t i2c_bus_write(uint8_t device_addr, const uint8_t *data, size_t data_len, int timeout_ms);
 
 /**
  * @brief Read data from an I2C device
  * 
+ * This function performs a simple read operation. If the device requires
+ * writing a register address first, use i2c_bus_write_read_repeated_start() instead.
+ * 
  * @param device_addr 7-bit I2C device address
- * @param reg_addr Register address to read from (can be NULL if not needed)
- * @param reg_addr_len Length of register address in bytes (0 if reg_addr is NULL)
  * @param data Buffer to store read data
  * @param data_len Number of bytes to read
  * @param timeout_ms Timeout in milliseconds
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t i2c_bus_read(uint8_t device_addr, const uint8_t *reg_addr, size_t reg_addr_len,
-                      uint8_t *data, size_t data_len, int timeout_ms);
-
-/**
- * @brief Write then read from an I2C device (combined transaction)
- * 
- * Useful for devices that require writing a register address before reading.
- * 
- * @param device_addr 7-bit I2C device address
- * @param write_data Data to write (typically register address)
- * @param write_len Length of write data in bytes
- * @param read_data Buffer to store read data
- * @param read_len Number of bytes to read
- * @param timeout_ms Timeout in milliseconds
- * @return ESP_OK on success, error code otherwise
- */
-esp_err_t i2c_bus_write_read(uint8_t device_addr, const uint8_t *write_data, size_t write_len,
-                              uint8_t *read_data, size_t read_len, int timeout_ms);
+esp_err_t i2c_bus_read(uint8_t device_addr, uint8_t *data, size_t data_len, int timeout_ms);
 
 /**
  * @brief Write then read with explicit Repeated Start (for devices that require it)
