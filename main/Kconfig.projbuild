@@ -88,6 +88,21 @@ config ENABLE_HV_SUPPORT
         When disabled, all HV-related code will be excluded from compilation.
         Requires I2C bus to be enabled.
 
+config HV_ADC_I2C_ADDRESS
+    hex "HV ADC (ADS112C04) I2C address"
+    default 0x40
+    depends on ENABLE_HV_SUPPORT
+    help
+        I2C address of the ADS112C04 ADC.
+        Default: 0x40 (AO=DGND, A1=DGND)
+        Other possible addresses:
+        - 0x41 (AO=DGND, A1=DVDD)
+        - 0x42 (AO=DGND, A1=SDA)
+        - 0x43 (AO=DGND, A1=SCL)
+        - 0x44 (AO=DVDD, A1=DGND)
+        - 0x45 (AO=DVDD, A1=DVDD)
+        Note: Check schematic to verify AO and A1 pin connections.
+
 config ENABLE_SPL06
     bool "Enable SPL06-001 pressure sensor support"
     default n

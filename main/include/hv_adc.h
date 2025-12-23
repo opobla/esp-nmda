@@ -7,8 +7,9 @@
 
 #ifdef CONFIG_ENABLE_HV_SUPPORT
 
-// ADS112C04 I2C address (default)
-#define HV_ADC_I2C_ADDR_DEFAULT  0x48
+// ADS112C04 I2C address (configurable via Kconfig)
+// Default: 0x40 (AO=DGND, A1=DGND) according to schematic
+#define HV_ADC_I2C_ADDR_DEFAULT  CONFIG_HV_ADC_I2C_ADDRESS
 
 // ADS112C04 Commands (see datasheet section 8.5.3)
 #define HV_ADC_CMD_RESET    0x06  // Reset command: 0000 011x
