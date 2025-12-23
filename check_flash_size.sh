@@ -52,3 +52,10 @@ ssh -p "$REMOTE_PORT" "${REMOTE_USER}@${REMOTE_HOSTNAME}" << EOF
     sudo python3 -m esptool --port ${DEVICE} chip_id 2>&1 | head -5 || echo "Error al leer chip_id"
 EOF
 
+
+
+
+
+
+
+

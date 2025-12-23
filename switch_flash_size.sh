@@ -100,3 +100,10 @@ echo "  1. Eliminar sdkconfig: rm -f sdkconfig sdkconfig.old"
 echo "  2. Recompilar: idf.py fullclean && idf.py build"
 echo ""
 
+
+
+
+
+
+
+

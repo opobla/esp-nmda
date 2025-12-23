@@ -90,3 +90,10 @@ python ${IDF_PATH}/components/partition_table/gen_esp32part.py \
 - Si el binario es más pequeño, funcionará pero no usará todo el espacio disponible
 - Después de flashear, el ESP32 debería poder leer la configuración desde NVS
 
+
+
+
+
+
+
+
