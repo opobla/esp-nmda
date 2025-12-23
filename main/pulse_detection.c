@@ -21,10 +21,6 @@ void init_GPIO() {
     gpio_set_direction(PIN_PULSE_IN_CH2, GPIO_MODE_INPUT);
     gpio_set_direction(PIN_PULSE_IN_CH3, GPIO_MODE_INPUT);
 
-    #define USER_LED 32
-    gpio_set_direction(USER_LED, GPIO_MODE_OUTPUT);
-
-
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);
 
     gpio_isr_handler_add(PIN_PULSE_IN_CH1, detection_isr_handler, NULL);

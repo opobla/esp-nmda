@@ -16,6 +16,10 @@
 #include "sntp.h"
 #include "mqtt.h"
 
+#ifdef CONFIG_ENABLE_USER_LED
+#include "user_led.h"
+#endif
+
 #ifdef CONFIG_ENABLE_I2C_BUS
 #include "i2c_bus.h"
 #endif
@@ -39,6 +43,19 @@ nmda_init_config_t nmda_config = NMDA_INIT_CONFIG_DEFAULT();
 void app_main(void)
 {
     ESP_LOGI("APP_MAIN", "is running on %d Core", xPortGetCoreID());
+    
+    // Initialize User LED first to indicate system booting (before any other initialization)
+#ifdef CONFIG_ENABLE_USER_LED
+    ESP_LOGI("APP_MAIN", "Initializing User LED...");
+    esp_err_t user_led_ret = user_led_init();
+    if (user_led_ret == ESP_OK) {
+        user_led_set_condition(USER_LED_BOOTING);
+        ESP_LOGI("APP_MAIN", "User LED initialized and showing BOOTING pattern");
+    } else {
+        ESP_LOGW("APP_MAIN", "Failed to initialize User LED: %s", esp_err_to_name(user_led_ret));
+    }
+#endif
+
     init_nvs();
 
     ESP_LOGI("APP_MAIN", "Loading nmda configuration");

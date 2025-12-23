@@ -1,5 +1,56 @@
 # Log de Desarrollo
 
+## 2024 - Módulo User LED para indicación de estado del sistema
+
+### Cambios realizados
+
+- **Archivo creado**: `main/user_led.c` - Implementación del módulo User LED
+- **Archivo creado**: `main/include/user_led.h` - Header con API pública
+- **Archivo modificado**: `main/Kconfig.projbuild` - Añadidas opciones de configuración
+- **Archivo modificado**: `main/CMakeLists.txt` - Añadido user_led.c a la compilación
+- **Archivo modificado**: `main/pulse_detection.c` - Eliminado código del LED USER
+- **Archivo modificado**: `main/main.c` - Integrada inicialización temprana del módulo
+
+### Detalles técnicos
+
+Se ha creado un módulo dedicado para controlar el LED USER (GPIO 32 por defecto) que permite indicar diferentes condiciones del sistema mediante patrones de destellos configurables.
+
+**Características principales:**
+- Configurable mediante `sdkconfig` (GPIO, duraciones, pausas)
+- Puede deshabilitarse completamente si no hay LED conectado
+- Tarea FreeRTOS dedicada para ejecución no bloqueante
+- Patrones predefinidos para diferentes estados del sistema
+- API simple: `user_led_init()`, `user_led_set_condition()`, `user_led_off()`
+
+**Patrones implementados:**
+- `USER_LED_BOOTING`: 2 cortos + 2 largos (sistema arrancando)
+- `USER_LED_WIFI_CONNECTING`: 2 cortos (WiFi conectando)
+- `USER_LED_WIFI_ERROR`: 3 cortos + 1 largo (error WiFi)
+- `USER_LED_NTP_CONNECTING`: 1 corto + 1 largo (NTP conectando)
+- `USER_LED_NTP_ERROR`: 1 corto + 2 largos (error NTP)
+- `USER_LED_DATA_ACQUISITION`: 1 corto (sistema adquiriendo datos, parpadeo continuo)
+- `USER_LED_OFF`: LED apagado
+
+**Configuración por defecto:**
+- GPIO: 32
+- Duración corto: 100ms
+- Duración largo: 500ms
+- Pausa entre destellos: 200ms
+- Pausa entre ciclos: 1000ms (1 segundo)
+
+**Inicialización:**
+El módulo se inicializa al principio de `app_main()`, justo después de `init_nvs()`, para poder indicar el estado de arranque del sistema desde el inicio.
+
+**Arquitectura:**
+- Tarea FreeRTOS con prioridad media (3)
+- Cola de mensajes para recibir comandos de cambio de condición
+- Patrones definidos como arrays de duraciones (valores positivos = LED ON, negativos = LED OFF)
+- Los patrones se repiten indefinidamente con pausa de 1 segundo entre ciclos
+
+**Próximos pasos:**
+- Integrar llamadas a `user_led_set_condition()` en módulos WiFi y SNTP para indicar cambios de estado
+- Cambiar a `USER_LED_DATA_ACQUISITION` cuando el sistema esté completamente inicializado y adquiriendo datos
+
 ## 2024 - Eliminación de función no utilizada i2c_bus_write_read
 
 ### Cambios realizados

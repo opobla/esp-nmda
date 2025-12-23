@@ -124,4 +124,52 @@ config SPL06_I2C_ADDRESS
         Alternative: 0x76 (SDO pin connected to GND or CSB pin connected to GND)
         Note: Use I2C bus scan to detect the actual address of your sensor.
 
+config ENABLE_USER_LED
+    bool "Enable User LED support"
+    default y
+    help
+        Enable user LED for system status indication via blink patterns.
+        The LED will indicate different system conditions (booting, WiFi, NTP, etc.)
+        through configurable blink patterns.
+
+config USER_LED_GPIO
+    int "User LED GPIO number"
+    default 32
+    depends on ENABLE_USER_LED
+    help
+        GPIO number for the user LED.
+        Default: 32 (GPIO32)
+
+config USER_LED_SHORT_DURATION_MS
+    int "Short blink duration (ms)"
+    default 100
+    depends on ENABLE_USER_LED
+    help
+        Duration of short blinks in milliseconds.
+        Default: 100ms
+
+config USER_LED_LONG_DURATION_MS
+    int "Long blink duration (ms)"
+    default 500
+    depends on ENABLE_USER_LED
+    help
+        Duration of long blinks in milliseconds.
+        Default: 500ms
+
+config USER_LED_PAUSE_BETWEEN_BLINKS_MS
+    int "Pause between blinks (ms)"
+    default 200
+    depends on ENABLE_USER_LED
+    help
+        Pause duration between individual blinks in milliseconds.
+        Default: 200ms
+
+config USER_LED_PAUSE_BETWEEN_CYCLES_MS
+    int "Pause between pattern cycles (ms)"
+    default 2000
+    depends on ENABLE_USER_LED
+    help
+        Pause duration between complete pattern cycles in milliseconds.
+        Default: 2000ms (2 seconds)
+
 endmenu
