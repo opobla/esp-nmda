@@ -5,6 +5,7 @@
 #include "i2c_bus.h"
 #include "esp32-libs.h"
 #include <math.h>
+#include <inttypes.h>
 
 static const char *TAG = "SPL06";
 
@@ -33,17 +34,8 @@ static esp_err_t spl06_read_register(uint8_t reg, uint8_t *data, size_t len)
     // Use write_read_repeated_start to guarantee Repeated Start condition
     esp_err_t ret = i2c_bus_write_read_repeated_start(SPL06_I2C_ADDR, &reg, 1, data, len, 1000);
     
-    // Debug: log register reads for temperature registers
-    if (reg >= SPL06_REG_TMP_B2 && reg <= SPL06_REG_TMP_B0 && len <= 3) {
-        static int reg_debug_count = 0;
-        if (reg_debug_count < 3) {
-            ESP_LOGI(TAG, "Read register 0x%02X: ", reg);
-            for (size_t i = 0; i < len; i++) {
-                ESP_LOGI(TAG, "  data[%d]=0x%02X", i, data[i]);
-            }
-            reg_debug_count++;
-        }
-    }
+    // Debug: log register reads (only for temperature registers when debugging)
+    // Removed ESP_LOGD as it's not visible in user's system
     
     return ret;
 }
@@ -96,7 +88,7 @@ static esp_err_t spl06_read_calibration(void)
 
     calib_loaded = true;
     ESP_LOGI(TAG, "Calibration coefficients loaded");
-    ESP_LOGI(TAG, "c0=%d, c1=%d, c00=%ld, c10=%ld", 
+    ESP_LOGI(TAG, "c0=%d, c1=%d, c00=%" PRId32 ", c10=%" PRId32, 
              calib_coeffs.c0, calib_coeffs.c1, calib_coeffs.c00, calib_coeffs.c10);
     ESP_LOGI(TAG, "c01=%d, c11=%d, c20=%d, c21=%d, c30=%d",
              calib_coeffs.c01, calib_coeffs.c11, calib_coeffs.c20, calib_coeffs.c21, calib_coeffs.c30);
@@ -113,6 +105,9 @@ esp_err_t spl06_init(void)
 
     ESP_LOGI(TAG, "Starting SPL06 initialization (I2C address: 0x%02X)", SPL06_I2C_ADDR);
     
+    // Small delay to ensure I2C bus is ready
+    vTaskDelay(pdMS_TO_TICKS(10));
+    
     uint8_t product_id;
     esp_err_t ret;
 
@@ -122,6 +117,13 @@ esp_err_t spl06_init(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read product ID: %s (0x%X)", esp_err_to_name(ret), ret);
         ESP_LOGE(TAG, "Check I2C connection and address (0x%02X)", SPL06_I2C_ADDR);
+        ESP_LOGE(TAG, "Possible causes:");
+        ESP_LOGE(TAG, "  - Sensor not connected or powered");
+        ESP_LOGE(TAG, "  - Wrong I2C address (try 0x76 or 0x77)");
+        ESP_LOGE(TAG, "  - I2C wiring issue (SDA=GPIO%d, SCL=GPIO%d)", 
+                 CONFIG_I2C_MASTER_SDA_IO, CONFIG_I2C_MASTER_SCL_IO);
+        ESP_LOGE(TAG, "  - Missing pull-up resistors (should be ~4.7kΩ)");
+        ESP_LOGE(TAG, "  - Check I2C bus scan output above for detected devices");
         return ret;
     }
     
@@ -144,23 +146,60 @@ esp_err_t spl06_init(void)
     // Wait for sensor to be ready (100ms)
     vTaskDelay(pdMS_TO_TICKS(100));
 
-    // Configure pressure measurement: 4 samples per second, 8x oversampling
-    // PRS_CFG: Rate=4 (010), PRC=8 (1000) -> 0x24
-    ret = spl06_write_register(SPL06_REG_PRS_CFG, 0x24);
+    // ========================================================================
+    // MAXIMUM BAROMETRIC PRECISION CONFIGURATION
+    // ========================================================================
+    // Trade-offs for maximum precision:
+    //   - Oversampling: 128x (maximum) for both pressure and temperature
+    //   - Measurement rate: 2/s (reduced from 4/s due to high oversampling)
+    //   - First measurement time: ~500ms (increased from ~250ms)
+    //   - Power consumption: Higher due to more internal measurements per result
+    //
+    // According to SPL06-001 datasheet:
+    //   - Higher oversampling = lower noise = higher precision
+    //   - Temperature oversampling also important because T is used in P compensation
+    //   - With 128x oversampling, maximum practical rate is 2/s
+    // ========================================================================
+
+    // Configure pressure measurement: 2 samples per second, 128x oversampling (MAXIMUM)
+    // PRS_CFG register (0x06):
+    //   Bits [6:4]: PM_RATE = 001 (2 measurements/second)
+    //   Bits [3:0]: PM_PRC  = 0111 (128x oversampling - MAXIMUM)
+    // Result: 0b00010111 = 0x17
+    ret = spl06_write_register(SPL06_REG_PRS_CFG, 0x17);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure pressure");
         return ret;
     }
-    ESP_LOGI(TAG, "Pressure configured: Rate=4, PRC=8");
+    ESP_LOGI(TAG, "Pressure configured: Rate=2/s, Oversampling=128x (0x17) - MAXIMUM PRECISION");
 
-    // Configure temperature measurement: 4 samples per second, 8x oversampling
-    // TMP_CFG: Rate=4 (010), PRC=8 (1000), no external sensor -> 0x24
-    ret = spl06_write_register(SPL06_REG_TMP_CFG, 0x24);
+    // Configure temperature measurement: 2 samples per second, 128x oversampling (MAXIMUM)
+    // TMP_CFG register (0x07):
+    //   Bit 7: TMP_EXT = 1 (use external MEMS sensor - REQUIRED for correct calibration!)
+    //   Bits [6:4]: TMP_RATE = 001 (2 measurements/second)
+    //   Bits [3:0]: TMP_PRC  = 0111 (128x oversampling - MAXIMUM)
+    // Result: 0b10010111 = 0x97
+    // IMPORTANT: Calibration coefficients are based on external MEMS sensor!
+    // Using internal ASIC sensor (TMP_EXT=0) gives incorrect temperature values.
+    ret = spl06_write_register(SPL06_REG_TMP_CFG, 0x97);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure temperature");
         return ret;
     }
-    ESP_LOGI(TAG, "Temperature configured: Rate=4, PRC=8");
+    ESP_LOGI(TAG, "Temperature configured: Rate=2/s, Oversampling=128x, External MEMS (0x97) - MAXIMUM PRECISION");
+
+    // Configure result bit-shift for high oversampling (REQUIRED when oversampling > 8x)
+    // CFG_REG register (0x09):
+    //   Bit 2: P_SHIFT = 1 (enable pressure result bit-shift, required for PM_PRC > 8)
+    //   Bit 3: T_SHIFT = 1 (enable temperature result bit-shift, required for TMP_PRC > 8)
+    // Result: 0b00001100 = 0x0C
+    // NOTE: Without this, raw values will be incorrect with oversampling > 8x!
+    ret = spl06_write_register(SPL06_REG_CFG_REG, 0x0C);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure result bit-shift");
+        return ret;
+    }
+    ESP_LOGI(TAG, "Result bit-shift enabled for P and T (0x0C) - Required for 128x oversampling");
 
     // Configure measurement: continuous pressure and temperature
     // MEAS_CFG: Continuous mode (0x07 = measure both pressure and temperature continuously)
@@ -174,9 +213,9 @@ esp_err_t spl06_init(void)
     ESP_LOGI(TAG, "Measurement configured: Continuous mode (0x07)");
     
     // Wait for first measurement to be ready
-    // With oversampling 8x and rate 4, first measurement takes ~200-250ms
-    ESP_LOGI(TAG, "Waiting for first measurement...");
-    int init_timeout = 50; // 50 attempts = 500ms
+    // With oversampling 128x and rate 2/s, first measurement takes ~500-600ms
+    ESP_LOGI(TAG, "Waiting for first measurement (128x oversampling takes longer)...");
+    int init_timeout = 100; // 100 attempts = 1000ms (increased for 128x oversampling)
     while (!spl06_is_ready() && init_timeout-- > 0) {
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -220,16 +259,7 @@ bool spl06_is_ready(void)
     bool ready = (meas_cfg & (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY)) == 
                  (SPL06_MEAS_CFG_PRS_RDY | SPL06_MEAS_CFG_TMP_RDY);
     
-    // Debug: log ready status
-    static int ready_debug_count = 0;
-    if (ready_debug_count < 5) {
-        ESP_LOGI(TAG, "Sensor ready check: meas_cfg=0x%02X, PRS_RDY=%d, TMP_RDY=%d, ready=%d",
-                 meas_cfg, 
-                 (meas_cfg & SPL06_MEAS_CFG_PRS_RDY) ? 1 : 0,
-                 (meas_cfg & SPL06_MEAS_CFG_TMP_RDY) ? 1 : 0,
-                 ready ? 1 : 0);
-        ready_debug_count++;
-    }
+    // Debug logging removed (ESP_LOGD not visible in user's system)
     
     return ready;
 }
@@ -252,41 +282,29 @@ static int32_t spl06_read_raw_pressure(void)
 
 static int32_t spl06_read_raw_temperature(void)
 {
-    uint8_t b2, b1, b0;
+    uint8_t data[3];
     
-    // Read temperature registers individually to ensure correct reading
+    // Read all 3 bytes in one atomic transaction starting from TMP_B2
+    // This ensures we read a coherent measurement and prevents reading bytes
+    // from different measurements if the sensor updates between reads.
     // SPL06-001 uses register addresses 0x03 (TMP_B2), 0x04 (TMP_B1), 0x05 (TMP_B0)
-    if (spl06_read_register(SPL06_REG_TMP_B2, &b2, 1) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read TMP_B2 register");
-        return 0;
-    }
-    if (spl06_read_register(SPL06_REG_TMP_B1, &b1, 1) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read TMP_B1 register");
-        return 0;
-    }
-    if (spl06_read_register(SPL06_REG_TMP_B0, &b0, 1) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to read TMP_B0 register");
+    if (spl06_read_register(SPL06_REG_TMP_B2, data, 3) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read temperature registers");
         return 0;
     }
 
     // 24-bit signed value in two's complement
     // TMP_B2 is MSB (bits 23-16), TMP_B1 is middle (bits 15-8), TMP_B0 is LSB (bits 7-0)
-    int32_t raw = ((int32_t)b2 << 16) | ((int32_t)b1 << 8) | b0;
+    int32_t raw = ((int32_t)data[0] << 16) | ((int32_t)data[1] << 8) | data[2];
     
     // Sign extend from 24-bit to 32-bit
     if (raw & 0x800000) {
         raw |= 0xFF000000; // Sign extend for negative values
     }
 
-    // Debug: log raw bytes
-    ESP_LOGI(TAG, "Temp raw: B2=0x%02X, B1=0x%02X, B0=0x%02X -> 0x%06lX (%ld)",
-             b2, b1, b0, (unsigned long)raw & 0xFFFFFF, raw);
-    
-    // Validate raw value (typical range for temperature is -50000 to 50000)
-    if (raw > 50000 || raw < -50000) {
-        ESP_LOGW(TAG, "Temperature raw value out of expected range: %ld (expected -50000 to 50000)", raw);
-        ESP_LOGW(TAG, "This might indicate sensor not ready or incorrect reading");
-    }
+    // Note: With 128x oversampling and MEMS sensor (TMP_EXT=1), typical raw values
+    // for room temperature (~20-25°C) are around 500K to 1.5M (depending on calibration).
+    // With kT=2088960, a raw value of 800K gives t_raw_sc ≈ 0.383
 
     return raw;
 }
@@ -315,16 +333,35 @@ esp_err_t spl06_read_pressure(float *pressure_pa)
 
     int32_t raw_pressure = spl06_read_raw_pressure();
     int32_t raw_temperature = spl06_read_raw_temperature();
+    
+    // Validate raw values before processing
+    // With 8x oversampling, typical raw ranges are approximately:
+    // - Pressure: depends on altitude, typically -8M to +8M
+    // - Temperature: approximately -1M to +1M for -40°C to +85°C range
+    if (raw_pressure == 0) {
+        ESP_LOGE(TAG, "Invalid pressure raw value: 0");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    // Temperature raw validation adjusted for 8x oversampling range
+    if (raw_temperature == 0) {
+        ESP_LOGE(TAG, "Invalid temperature raw value: 0");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
 
-    // Scale factors (for 8x oversampling)
-    float pscal = 253952.0f; // 2^20 / 8
-    float tscal = 524288.0f; // 2^20
+    // Scale factors for 128x oversampling (from SPL06-001 datasheet)
+    // kT and kP for oversampling rates: 
+    //   single=524288, 2x=1572864, 4x=3670016, 8x=7864320,
+    //   16x=253952, 32x=516096, 64x=1040384, 128x=2088960
+    float kP = 2088960.0f;  // Pressure scale factor for 128x oversampling
+    float kT = 2088960.0f;  // Temperature scale factor for 128x oversampling
 
-    // Normalized values
-    float p_raw_sc = (float)raw_pressure / pscal;
-    float t_raw_sc = (float)raw_temperature / tscal;
+    // Normalized values (scaled raw values)
+    float p_raw_sc = (float)raw_pressure / kP;
+    float t_raw_sc = (float)raw_temperature / kT;
 
-    // Calculate pressure using calibration coefficients
+    // Calculate pressure using calibration coefficients (from datasheet)
+    // Pcomp = c00 + Praw_sc*(c10 + Praw_sc*(c20 + Praw_sc*c30)) + 
+    //         Traw_sc*c01 + Traw_sc*Praw_sc*(c11 + Praw_sc*c21)
     float pressure = (float)calib_coeffs.c00 + 
                      p_raw_sc * ((float)calib_coeffs.c10 + p_raw_sc * ((float)calib_coeffs.c20 + p_raw_sc * (float)calib_coeffs.c30)) +
                      t_raw_sc * (float)calib_coeffs.c01 +
@@ -357,30 +394,24 @@ esp_err_t spl06_read_temperature(float *temp_celsius)
     }
 
     int32_t raw_temperature = spl06_read_raw_temperature();
+    
+    // Validate raw value before processing
+    // With 8x oversampling, temperature raw value of 0 indicates error
+    if (raw_temperature == 0) {
+        ESP_LOGE(TAG, "Invalid temperature raw value: 0");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
 
-    // Scale factor kT for temperature (for 8x oversampling, PRC=8)
-    // kT = 2^20 = 524288
-    float tscal = 524288.0f;
+    // Scale factor kT for temperature (128x oversampling - MAXIMUM PRECISION)
+    // From SPL06-001 datasheet: kT for 128x oversampling = 2088960
+    float kT = 2088960.0f;
 
     // Normalized value: Traw_sc = Traw / kT
-    float t_raw_sc = (float)raw_temperature / tscal;
+    float t_raw_sc = (float)raw_temperature / kT;
 
     // Calculate temperature using calibration coefficients
     // Formula from datasheet: T = c0 * 0.5 + c1 * Traw_sc
-    float c0_term = (float)calib_coeffs.c0 * 0.5f;
-    float c1_term = (float)calib_coeffs.c1 * t_raw_sc;
-    float temperature = c0_term + c1_term;
-
-    // Debug logging
-    ESP_LOGI(TAG, "Temp calc: raw=%ld, t_raw_sc=%.6f, c0=%d, c1=%d", 
-             raw_temperature, t_raw_sc, calib_coeffs.c0, calib_coeffs.c1);
-    ESP_LOGI(TAG, "Temp calc: c0*0.5=%.2f, c1*t_raw_sc=%.2f, result=%.2f°C",
-             c0_term, c1_term, temperature);
-    
-    // Check if raw value seems reasonable (typical range is -100000 to 100000)
-    if (raw_temperature > 100000 || raw_temperature < -100000) {
-        ESP_LOGW(TAG, "Temperature raw value seems out of range: %ld", raw_temperature);
-    }
+    float temperature = (float)calib_coeffs.c0 * 0.5f + (float)calib_coeffs.c1 * t_raw_sc;
 
     *temp_celsius = temperature;
     return ESP_OK;
@@ -410,22 +441,38 @@ esp_err_t spl06_read_both(float *pressure_pa, float *temp_celsius)
 
     int32_t raw_pressure = spl06_read_raw_pressure();
     int32_t raw_temperature = spl06_read_raw_temperature();
+    
+    // Validate raw values before processing
+    if (raw_pressure == 0) {
+        ESP_LOGE(TAG, "Invalid pressure raw value: 0");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (raw_temperature == 0) {
+        ESP_LOGE(TAG, "Invalid temperature raw value: 0");
+        return ESP_ERR_INVALID_RESPONSE;
+    }
 
-    // Scale factors (for 8x oversampling)
-    float pscal = 253952.0f; // 2^20 / 8
-    float tscal = 524288.0f; // 2^20
+    // Scale factors for 128x oversampling (from SPL06-001 datasheet)
+    // kT and kP for oversampling rates: 
+    //   single=524288, 2x=1572864, 4x=3670016, 8x=7864320,
+    //   16x=253952, 32x=516096, 64x=1040384, 128x=2088960
+    float kP = 2088960.0f;  // Pressure scale factor for 128x oversampling
+    float kT = 2088960.0f;  // Temperature scale factor for 128x oversampling
 
-    // Normalized values
-    float p_raw_sc = (float)raw_pressure / pscal;
-    float t_raw_sc = (float)raw_temperature / tscal;
+    // Normalized values (scaled raw values)
+    float p_raw_sc = (float)raw_pressure / kP;
+    float t_raw_sc = (float)raw_temperature / kT;
 
-    // Calculate pressure using calibration coefficients
+    // Calculate pressure using calibration coefficients (from datasheet)
+    // Pcomp = c00 + Praw_sc*(c10 + Praw_sc*(c20 + Praw_sc*c30)) + 
+    //         Traw_sc*c01 + Traw_sc*Praw_sc*(c11 + Praw_sc*c21)
     float pressure = (float)calib_coeffs.c00 + 
                      p_raw_sc * ((float)calib_coeffs.c10 + p_raw_sc * ((float)calib_coeffs.c20 + p_raw_sc * (float)calib_coeffs.c30)) +
                      t_raw_sc * (float)calib_coeffs.c01 +
                      t_raw_sc * p_raw_sc * ((float)calib_coeffs.c11 + p_raw_sc * (float)calib_coeffs.c21);
 
     // Calculate temperature using calibration coefficients
+    // Formula from datasheet: T = c0 * 0.5 + c1 * Traw_sc
     float temperature = (float)calib_coeffs.c0 * 0.5f + (float)calib_coeffs.c1 * t_raw_sc;
 
     *pressure_pa = pressure;
