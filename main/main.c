@@ -56,8 +56,65 @@ void app_main(void)
     }
 #endif
 
+    // SPL06 initialization right after User LED (for debugging)
+#ifdef CONFIG_ENABLE_SPL06
+    init_nvs();  // NVS needed for config, but minimal initialization
+    
+    ESP_LOGI("APP_MAIN", "=== SPL06 DEBUG MODE ===");
+    ESP_LOGI("APP_MAIN", "Initializing I2C bus for SPL06...");
+    
+#ifdef CONFIG_ENABLE_I2C_BUS
+    esp_err_t i2c_ret = i2c_bus_init();
+    if (i2c_ret == ESP_OK) {
+        ESP_LOGI("APP_MAIN", "I2C bus initialized successfully");
+        vTaskDelay(pdMS_TO_TICKS(50));  // Small delay to allow I2C bus to stabilize
+        
+        // I2C scan disabled for debugging
+        // ESP_LOGI("APP_MAIN", "Scanning I2C bus for devices...");
+        // i2c_bus_scan();
+    } else {
+        ESP_LOGE("APP_MAIN", "I2C bus initialization failed: %s", esp_err_to_name(i2c_ret));
+    }
+#else
+    ESP_LOGE("APP_MAIN", "I2C bus support is disabled - required for SPL06!");
+#endif
+
+    ESP_LOGI("APP_MAIN", "Initializing SPL06 sensor");
+    esp_err_t spl06_ret = spl06_init();
+    if (spl06_ret == ESP_OK) {
+        ESP_LOGI("APP_MAIN", "SPL06 sensor initialized successfully");
+        
+        // Create telemetry queue (needed by monitor task)
+        telemetry_queue = xQueueCreate(100, sizeof(struct telemetry_message));
+        if (telemetry_queue == NULL) {
+            ESP_LOGE("APP_MAIN", "Failed to create telemetry queue");
+        } else {
+            ESP_LOGI("APP_MAIN", "Telemetry queue created");
+        }
+        
+        // Create SPL06 monitor task
+        BaseType_t task_ret = xTaskCreatePinnedToCore(&spl06_monitor_task, "SPL06 Monitor", 4096, NULL, 3, NULL, 1);
+        if (task_ret == pdPASS) {
+            ESP_LOGI("APP_MAIN", "SPL06 monitor task created successfully");
+        } else {
+            ESP_LOGE("APP_MAIN", "Failed to create SPL06 monitor task");
+        }
+    } else {
+        ESP_LOGE("APP_MAIN", "SPL06 initialization failed: %s", esp_err_to_name(spl06_ret));
+    }
+    
+    ESP_LOGI("APP_MAIN", "=== SPL06 DEBUG MODE ACTIVE ===");
+    ESP_LOGI("APP_MAIN", "All other systems disabled for debugging");
+    
+    // Keep main task alive
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+#else
     init_nvs();
 
+    // DISABLED FOR SPL06 DEBUGGING
+    /*
     ESP_LOGI("APP_MAIN", "Loading nmda configuration");
     esp_err_t settings_ret = load_nmda_settings(&nmda_config);
     if (settings_ret != ESP_OK) {
@@ -104,9 +161,14 @@ void app_main(void)
     esp_err_t i2c_ret = i2c_bus_init();
     if (i2c_ret == ESP_OK) {
         ESP_LOGI("APP_MAIN", "I2C bus initialized successfully");
+        
+        // Small delay to allow I2C bus to stabilize
+        vTaskDelay(pdMS_TO_TICKS(50));
+        
         // Scan I2C bus to see what devices are connected
-        // DISABLED: I2C bus scan disabled
-        // i2c_bus_scan();
+        // This helps diagnose connection issues
+        ESP_LOGI("APP_MAIN", "Scanning I2C bus for devices...");
+        i2c_bus_scan();
         
 #ifdef CONFIG_ENABLE_HV_SUPPORT
         // Verify ADC is present on I2C bus
@@ -167,9 +229,11 @@ void app_main(void)
     ESP_LOGW("APP_MAIN", "HV support is disabled in configuration");
 #endif
 
-    // MQTT temporarily disabled - uncomment when MQTT server is configured correctly
-    // xTaskCreatePinnedToCore(&mss_sender, "Send message", 1024 * 6, &nmda_config, 5, NULL, 0);
+    // MQTT enabled for SPL06 telemetry publishing
+    xTaskCreatePinnedToCore(&mss_sender, "Send message", 1024 * 6, &nmda_config, 5, NULL, 0);
     xTaskCreatePinnedToCore(&task_pcnt, "Pulse counter", 1024 * 3, NULL, 1, NULL, 1);
 
     // xTaskCreatePinnedToCore(&task_ota, "OTA handling", 1024 * 8, NULL, 5, NULL, 0);
+    */
+#endif // CONFIG_ENABLE_SPL06
 }
