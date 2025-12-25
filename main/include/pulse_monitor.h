@@ -4,8 +4,6 @@
 #include "common.h"
 #include "datastructures.h"
 
-#include "driver/periph_ctrl.h"
-#include "driver/ledc.h"
 #include "driver/gpio.h"
 #include "driver/pcnt.h"
 
@@ -13,10 +11,7 @@
 #define PIN_PULSE_IN_CH2 26
 #define PIN_PULSE_IN_CH3 27
 
-#define ESP_INTR_FLAG_DEFAULT 0
-
-void task_pulse_monitor(void *arg);
 void pulse_counter_init(pcnt_unit_t unit, int pulse_gpio_num);
-int get_and_clear(pcnt_unit_t unit);
+int16_t get_and_clear(pcnt_unit_t unit);
 
 #endif
