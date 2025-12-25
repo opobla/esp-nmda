@@ -1,5 +1,6 @@
 #include "mqtt.h"
 #include "settings.h"
+#include <string.h>
 
 esp_mqtt_client_handle_t client = NULL;
 
@@ -28,7 +29,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
 
         case MQTT_EVENT_PUBLISHED:
-            //ESP_LOGI("MQTT", "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+            ESP_LOGI("MQTT", "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
             break;
 
         case MQTT_EVENT_DATA:
@@ -38,7 +39,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
 
         case MQTT_EVENT_ERROR:
-            ESP_LOGI("MQTT", "MQTT_EVENT_ERROR");
+            ESP_LOGE("MQTT", "MQTT_EVENT_ERROR: error_handle=%p", event->error_handle);
+            if (event->error_handle != NULL) {
+                ESP_LOGE("MQTT", "Error type: %d, error code: %d", 
+                         event->error_handle->error_type,
+                         event->error_handle->esp_transport_sock_errno);
+            }
             break;
 
         case MQTT_EVENT_BEFORE_CONNECT:
@@ -99,5 +105,13 @@ void mqtt_setup(nmda_init_config_t* nmda_config) {
 }
 
 void mqtt_send_mss(char* topic, char* mss) {
-    esp_mqtt_client_publish(client, topic, mss, 0, 0, false);
+    if (client == NULL) {
+        ESP_LOGW("MQTT", "Cannot publish: MQTT client not initialized");
+        return;
+    }
+    
+    int msg_id = esp_mqtt_client_publish(client, topic, mss, 0, 0, false);
+    if (msg_id < 0) {
+        ESP_LOGE("MQTT", "Failed to publish message to %s (error: %d)", topic, msg_id);
+    }
 }

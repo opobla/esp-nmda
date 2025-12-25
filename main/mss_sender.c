@@ -38,9 +38,20 @@ void mss_sender(void *parameters) {
 	ESP_LOGI(TAG, "Topic base: %s", topic_base);
 
 	mqtt_setup(nmda_config);
+	
+	// Wait for MQTT connection
+	ESP_LOGI(TAG, "Waiting for MQTT connection...");
+	if (xSemaphoreTake(mqtt_semaphore, pdMS_TO_TICKS(30000)) != pdTRUE) {
+		ESP_LOGE(TAG, "MQTT connection timeout");
+	} else {
+		ESP_LOGI(TAG, "MQTT connected successfully");
+	}
+	
 	mqtt_send_mss(topic_status, "mss_sender is running");
+	ESP_LOGI(TAG, "MQTT sender ready");
 
 	while(true) {
+		ESP_LOGD(TAG, "Waiting for message from telemetry queue...");
 		if (xQueueReceive(telemetry_queue, &message, portMAX_DELAY)) {
 		    char buffer[500];
 		    switch (message.tm_message_type) {
@@ -48,29 +59,36 @@ void mss_sender(void *parameters) {
 			    break;
 
 			case TM_PULSE_COUNT:
-                sprintf(buffer, "{ \"datetime\": \"%lld\", \"ch01\": \"%lu\", \"ch02\": \"%lu\", \"ch03\": \"%lu\", \"Interval_s\": \"%u\" }",
-                    message.timestamp,
-                    message.payload.tm_pcnt.channel[0],
-                    message.payload.tm_pcnt.channel[1],
-                    message.payload.tm_pcnt.channel[2],
+                sprintf(buffer, "{ \"start_datetime\": \"%lld\", \"datetime\": \"%lld\", \"ch01\": \"%lu\", \"ch02\": \"%lu\", \"ch03\": \"%lu\", \"Interval_s\": \"%u\" }",
+                    message.payload.tm_pcnt.start_timestamp,  // Timestamp de inicio del intervalo
+                    message.timestamp,                         // Timestamp de fin/publicación
+                    (unsigned long)message.payload.tm_pcnt.channel[0],
+                    (unsigned long)message.payload.tm_pcnt.channel[1],
+                    (unsigned long)message.payload.tm_pcnt.channel[2],
                     message.payload.tm_pcnt.integration_time_sec
                 );
 
+		        ESP_LOGI(TAG, "Publishing PULSECOUNT on %s: ch1=%lu, ch2=%lu, ch3=%lu, interval=%u", 
+		                 topic_pcnt, 
+		                 (unsigned long)message.payload.tm_pcnt.channel[0],
+		                 (unsigned long)message.payload.tm_pcnt.channel[1],
+		                 (unsigned long)message.payload.tm_pcnt.channel[2],
+		                 message.payload.tm_pcnt.integration_time_sec);
 		        mqtt_send_mss(topic_pcnt, buffer);
-		        ESP_LOGI(TAG, "Publishing PULSECOUNT on %s", topic_pcnt);
+		        ESP_LOGI(TAG, "PULSECOUNT message published successfully");
 			    break;
 
             case TM_PULSE_DETECTION:
                 sprintf(buffer, "{ \"datetime\": \"%lld\", \"ch01\": \"%lu\", \"ch02\": \"%lu\", \"ch03\": \"%lu\"}",
                     message.timestamp,
-                    message.payload.tm_detect.channel[0],
-                    message.payload.tm_detect.channel[1],
-                    message.payload.tm_detect.channel[2]
+                    (unsigned long)message.payload.tm_detect.channel[0],
+                    (unsigned long)message.payload.tm_detect.channel[1],
+                    (unsigned long)message.payload.tm_detect.channel[2]
                 );
-		        ESP_LOGI(TAG, "Publishing DETECTOR %lu,%lu,%lu at %llu delta %llu",
-                    message.payload.tm_detect.channel[0],
-                    message.payload.tm_detect.channel[1],
-                    message.payload.tm_detect.channel[2],
+		        ESP_LOGI(TAG, "Publishing DETECTOR %lu,%lu,%lu at %lld delta %lld us",
+                    (unsigned long)message.payload.tm_detect.channel[0],
+                    (unsigned long)message.payload.tm_detect.channel[1],
+                    (unsigned long)message.payload.tm_detect.channel[2],
                     message.timestamp,
                     message.timestamp - last_event_time
                 );
@@ -81,7 +99,7 @@ void mss_sender(void *parameters) {
             case TM_TIME_SYNCHRONIZER:
                 sprintf(buffer, "{ \"datetime\": \"%lld\", \"cpu_lnd\": \"%lu\" }",
                     message.timestamp,
-                    message.payload.tm_sync.cpu_count
+                    (unsigned long)message.payload.tm_sync.cpu_count
                 );
                 ESP_LOGI(TAG, "Publishing TIME_SYNC on %s", topic_timesync);
 		        mqtt_send_mss(topic_timesync, buffer);
@@ -98,12 +116,17 @@ void mss_sender(void *parameters) {
                 );
                 ESP_LOGI(TAG, "Publishing SPL06 on %s", topic_spl06);
                 mqtt_send_mss(topic_spl06, buffer);
+                ESP_LOGI(TAG, "SPL06 message published successfully");
                 break;
 #endif
 
 			default:
+			    ESP_LOGW(TAG, "Unknown message type: %d", message.tm_message_type);
 			    break;
 		    }
+		    ESP_LOGD(TAG, "Message processing completed, waiting for next message...");
+		} else {
+		    ESP_LOGW(TAG, "Failed to receive message from queue");
 		}
 	}
 }
