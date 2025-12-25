@@ -35,3 +35,21 @@ void init_GPIO() {
     gpio_isr_handler_add(PIN_PULSE_IN_CH2, detection_isr_handler, NULL);
     gpio_isr_handler_add(PIN_PULSE_IN_CH3, detection_isr_handler, NULL);
 }
+
+// Reconfigurar interrupciones GPIO después de que PCNT se inicialice
+// (PCNT puede sobrescribir la configuración GPIO)
+void reconfigure_GPIO_interrupts(void) {
+    ESP_LOGI("PULSE_DETECTION", "Reconfiguring GPIO interrupts after PCNT initialization");
+    
+    // Reconfigurar tipo de interrupción (PCNT puede haberlo cambiado)
+    gpio_set_intr_type(PIN_PULSE_IN_CH1, GPIO_INTR_ANYEDGE);
+    gpio_set_intr_type(PIN_PULSE_IN_CH2, GPIO_INTR_ANYEDGE);
+    gpio_set_intr_type(PIN_PULSE_IN_CH3, GPIO_INTR_ANYEDGE);
+    
+    // Asegurar que los handlers estén añadidos
+    gpio_isr_handler_add(PIN_PULSE_IN_CH1, detection_isr_handler, NULL);
+    gpio_isr_handler_add(PIN_PULSE_IN_CH2, detection_isr_handler, NULL);
+    gpio_isr_handler_add(PIN_PULSE_IN_CH3, detection_isr_handler, NULL);
+    
+    ESP_LOGI("PULSE_DETECTION", "GPIO interrupts reconfigured");
+}

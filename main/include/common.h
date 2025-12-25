@@ -32,6 +32,7 @@ void hv_adc_monitor_task(void *parameters);
 
 //SET UP
 void init_GPIO(void);
+void reconfigure_GPIO_interrupts(void);
 
 //QUEUE
 extern QueueHandle_t telemetry_queue;
