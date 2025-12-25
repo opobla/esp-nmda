@@ -4,6 +4,7 @@
 #include "freertos/semphr.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "sdkconfig.h"
 #include "settings.h"
 #include "wifi.h"
@@ -65,11 +66,14 @@ void app_main(void)
     ntp_setup(&nmda_config);
 
     // Wait for WiFi and NTP to be ready
+    // Without WiFi/NTP, data collection is meaningless - reset the system
     if (xSemaphoreTake(wifi_semaphore, pdMS_TO_TICKS(30000)) != pdTRUE) {
-        ESP_LOGW("APP_MAIN", "WiFi connection timeout");
+        ESP_LOGE("APP_MAIN", "WiFi connection timeout - resetting system");
+        esp_restart();
     }
     if (xSemaphoreTake(sntp_semaphore, pdMS_TO_TICKS(30000)) != pdTRUE) {
-        ESP_LOGW("APP_MAIN", "NTP synchronization timeout");
+        ESP_LOGE("APP_MAIN", "NTP synchronization timeout - resetting system");
+        esp_restart();
     }
 
     // Initialize GPIO

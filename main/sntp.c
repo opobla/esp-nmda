@@ -38,10 +38,6 @@ void ntp_setup(nmda_init_config_t* nmda_config) {
     sntp_set_time_sync_notification_cb(on_got_time);
     ESP_LOGI("SNTP", "setup finished, waiting for time sync...");
     
-    // Wait for time sync with timeout (30 seconds)
-    if (xSemaphoreTake(sntp_semaphore, pdMS_TO_TICKS(30000)) == pdTRUE) {
-        ESP_LOGI("SNTP", "Time synchronized successfully");
-    } else {
-        ESP_LOGW("SNTP", "Time sync timeout, continuing without sync");
-    }
+    // Note: sntp_semaphore will be given when time is synchronized (on_got_time callback)
+    // The caller (main.c) is responsible for waiting for the semaphore
 }

@@ -78,5 +78,6 @@ void wifi_setup(nmda_init_config_t* nmda_config) {
 
 	ESP_LOGI("WIFI", "wifi_setup: done");
 	printf("------------------------------\n");
-	xSemaphoreTake(wifi_semaphore, portMAX_DELAY);
+	// Note: wifi_semaphore will be given when IP is obtained (IP_EVENT_STA_GOT_IP)
+	// The caller (main.c) is responsible for waiting for the semaphore
 }
