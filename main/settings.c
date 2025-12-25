@@ -14,6 +14,44 @@
 
 nvs_handle_t my_nvs_handle; // Declare an NVS handle
 
+/**
+ * @brief Safely free a string pointer if it was allocated dynamically
+ * 
+ * This function checks if a pointer points to dynamically allocated memory
+ * before freeing it. It avoids freeing string literals which would cause
+ * a crash.
+ * 
+ * Strategy: Check if the string content matches known default literals.
+ * If it matches, it's likely a string literal and we don't free it.
+ * Otherwise, we assume it was allocated with strdup/malloc and free it.
+ * 
+ * @param ptr Pointer to the string to free (can be NULL)
+ */
+static void safe_free_string(char* ptr) {
+    if (ptr == NULL) {
+        return;
+    }
+    
+    // Check if the string content matches known default literals
+    // These are the default values from NMDA_INIT_CONFIG_DEFAULT()
+    // If it matches, it's likely a string literal and we shouldn't free it
+    if (strcmp(ptr, "default") == 0 ||
+        strcmp(ptr, "mqtt") == 0 ||
+        strcmp(ptr, "mqtts") == 0 ||
+        strcmp(ptr, "ssl") == 0 ||
+        strcmp(ptr, "tls") == 0) {
+        // This is likely a string literal, don't free it
+        return;
+    }
+    
+    // For other strings, assume they were allocated with strdup/malloc
+    // and free them. This is safe because:
+    // 1. Values loaded from NVS/SD are always strdup'd
+    // 2. Values from INI file are always strdup'd
+    // 3. Only default literals match the above checks
+    free(ptr);
+}
+
 // This function is called for every configuration item found in the ini file
 int nmda_init_handler(void* config_struct, const char* section, const char* name, const char* value) {
     nmda_init_config_t* pconfig = (nmda_init_config_t*)config_struct;
@@ -39,7 +77,7 @@ int nmda_init_handler(void* config_struct, const char* section, const char* name
             char* dest = (char*)malloc(strlen(value) + strlen(pconfig->mqtt_ca_cert) + 2);
             strcpy(dest, pconfig->mqtt_ca_cert);
             strcat(dest, "\n");
-            free(pconfig->mqtt_ca_cert);
+            safe_free_string(pconfig->mqtt_ca_cert);
             strcat(dest, value);
             pconfig->mqtt_ca_cert = dest;
         } else {
@@ -153,9 +191,7 @@ esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
     #define LOAD_AND_SET(key, field) do { \
         buffer_size = sizeof(buffer); \
         if (settings_get_str(key, buffer, &buffer_size) == 0) { \
-            if (nmda_config->field && strcmp(nmda_config->field, "default") != 0) { \
-                free(nmda_config->field); \
-            } \
+            safe_free_string(nmda_config->field); \
             nmda_config->field = strdup(buffer); \
             ESP_LOGI(TAG, "Loaded %s: %s", key, nmda_config->field); \
         } else { \
@@ -181,17 +217,27 @@ esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
     #undef LOAD_AND_SET
     
     // Load MQTT CA certificate (can be multi-line, so handle separately)
-    // Certificate can be up to ~2000 bytes, so use a larger buffer
-    char cert_buffer[2048];
-    size_t cert_buffer_size = sizeof(cert_buffer);
-    if (settings_get_str("mqtt_ca_cert", cert_buffer, &cert_buffer_size) == 0) {
-        if (nmda_config->mqtt_ca_cert && strcmp(nmda_config->mqtt_ca_cert, "default") != 0) {
-            free(nmda_config->mqtt_ca_cert);
+    // Certificate can be up to ~2000 bytes, so use heap memory instead of stack
+    // First, get the size needed
+    size_t cert_size = 0;
+    if (nvs_get_str(my_nvs_handle, "mqtt_ca_cert", NULL, &cert_size) == ESP_OK && cert_size > 0) {
+        // Allocate buffer on heap to avoid stack overflow
+        char* cert_buffer = (char*)malloc(cert_size);
+        if (cert_buffer != NULL) {
+            size_t cert_buffer_size = cert_size;
+            if (settings_get_str("mqtt_ca_cert", cert_buffer, &cert_buffer_size) == 0) {
+                safe_free_string(nmda_config->mqtt_ca_cert);
+                nmda_config->mqtt_ca_cert = strdup(cert_buffer);
+                ESP_LOGI(TAG, "Loaded mqtt_ca_cert from NVS (length: %zu)", strlen(nmda_config->mqtt_ca_cert));
+            } else {
+                ESP_LOGW(TAG, "Failed to read mqtt_ca_cert from NVS");
+            }
+            free(cert_buffer);
+        } else {
+            ESP_LOGE(TAG, "Failed to allocate memory for certificate buffer");
         }
-        nmda_config->mqtt_ca_cert = strdup(cert_buffer);
-        ESP_LOGI(TAG, "Loaded mqtt_ca_cert from NVS (length: %zu)", strlen(nmda_config->mqtt_ca_cert));
     } else {
-        ESP_LOGW(TAG, "Failed to load mqtt_ca_cert from NVS, keeping default (NULL)");
+        ESP_LOGW(TAG, "mqtt_ca_cert not found in NVS, keeping default (NULL)");
     }
 
     nvs_close(my_nvs_handle);
