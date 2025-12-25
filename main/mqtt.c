@@ -66,13 +66,23 @@ void mqtt_setup(nmda_init_config_t* nmda_config) {
     if (!mqtt_port) mqtt_port = "unknown";
 
     ESP_LOGI("MQTT_SETUP", "MQTT trying transport %s host %s and port %s", mqtt_transport, mqtt_server, mqtt_port);
-    ESP_LOGI("MQTT_SETUP", "MQTT trying certificate %s", mqtt_ca_cert ? mqtt_ca_cert : "(null)");
+    ESP_LOGI("MQTT_SETUP", "MQTT CA certificate: %s", mqtt_ca_cert ? "configured" : "not configured (NULL)");
 
     esp_mqtt_client_config_t mqttConfig = {};
+    // Determine transport type: "mqtt" = TCP, "mqtts" or "ssl" = TLS/SSL
     if (strcmp(mqtt_transport, "mqtt") == 0) {
         mqttConfig.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
-    } else {
+        ESP_LOGI("MQTT_SETUP", "Using TCP transport (no encryption)");
+    } else if (strcmp(mqtt_transport, "mqtts") == 0 || strcmp(mqtt_transport, "ssl") == 0 || strcmp(mqtt_transport, "tls") == 0) {
         mqttConfig.broker.address.transport = MQTT_TRANSPORT_OVER_SSL;
+        ESP_LOGI("MQTT_SETUP", "Using TLS/SSL transport");
+        if (!mqtt_ca_cert) {
+            ESP_LOGW("MQTT_SETUP", "TLS enabled but no CA certificate configured - connection may fail!");
+        }
+    } else {
+        // Default to SSL if transport is not recognized (backward compatibility)
+        mqttConfig.broker.address.transport = MQTT_TRANSPORT_OVER_SSL;
+        ESP_LOGW("MQTT_SETUP", "Unknown transport '%s', defaulting to SSL/TLS", mqtt_transport);
     }
 
     mqttConfig.broker.address.hostname = mqtt_server;

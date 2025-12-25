@@ -173,11 +173,26 @@ esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
     LOAD_AND_SET("mqtt_port", mqtt_port);
     LOAD_AND_SET("mqtt_user", mqtt_user);
     LOAD_AND_SET("mqtt_password", mqtt_password);
+    LOAD_AND_SET("mqtt_transport", mqtt_transport);
     LOAD_AND_SET("mqtt_station", mqtt_station);
     LOAD_AND_SET("mqtt_experiment", mqtt_experiment);
     LOAD_AND_SET("mqtt_device_id", mqtt_device_id);
     
     #undef LOAD_AND_SET
+    
+    // Load MQTT CA certificate (can be multi-line, so handle separately)
+    // Certificate can be up to ~2000 bytes, so use a larger buffer
+    char cert_buffer[2048];
+    size_t cert_buffer_size = sizeof(cert_buffer);
+    if (settings_get_str("mqtt_ca_cert", cert_buffer, &cert_buffer_size) == 0) {
+        if (nmda_config->mqtt_ca_cert && strcmp(nmda_config->mqtt_ca_cert, "default") != 0) {
+            free(nmda_config->mqtt_ca_cert);
+        }
+        nmda_config->mqtt_ca_cert = strdup(cert_buffer);
+        ESP_LOGI(TAG, "Loaded mqtt_ca_cert from NVS (length: %zu)", strlen(nmda_config->mqtt_ca_cert));
+    } else {
+        ESP_LOGW(TAG, "Failed to load mqtt_ca_cert from NVS, keeping default (NULL)");
+    }
 
     nvs_close(my_nvs_handle);
     ESP_LOGI(TAG, "Settings loaded from NVS");

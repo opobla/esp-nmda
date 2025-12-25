@@ -98,6 +98,7 @@ esp_err_t i2c_bus_init(void)
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to create persistent handle for SPL06 (0x%02X): %s", 
                  CONFIG_SPL06_I2C_ADDRESS, esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Handle will be created on-demand, but this may indicate connection issues");
         // Non-fatal: handle will be created on-demand if needed
     } else {
         ESP_LOGI(TAG, "Created persistent handle for SPL06 (0x%02X)", CONFIG_SPL06_I2C_ADDRESS);
@@ -107,6 +108,7 @@ esp_err_t i2c_bus_init(void)
     i2c_initialized = true;
     ESP_LOGI(TAG, "I2C bus initialized successfully (SDA: GPIO%d, SCL: GPIO%d, Speed: %d Hz)",
              I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO, CONFIG_I2C_BUS_SPEED);
+    ESP_LOGI(TAG, "Internal pull-ups: %s", i2c_mst_cfg.flags.enable_internal_pullup ? "ENABLED" : "DISABLED");
 
     return ESP_OK;
 }
@@ -312,6 +314,8 @@ esp_err_t i2c_bus_scan(void)
 
     ESP_LOGI(TAG, "Scanning I2C bus for devices...");
     int found_count = 0;
+    uint8_t found_addresses[128];  // Maximum possible I2C addresses
+    const char* found_types[128];  // Device type descriptions
 
     for (uint8_t addr = 0x08; addr < 0x78; addr++) {
         i2c_device_config_t dev_cfg = {
@@ -330,6 +334,8 @@ esp_err_t i2c_bus_scan(void)
         uint8_t dummy_write = 0x00;
         ret = i2c_master_transmit(dev_handle, &dummy_write, 1, 50);
         if (ret == ESP_OK) {
+            found_addresses[found_count] = addr;
+            found_types[found_count] = "write";
             ESP_LOGI(TAG, "Found device at address 0x%02X (responded to write)", addr);
             found_count++;
         } else {
@@ -337,6 +343,8 @@ esp_err_t i2c_bus_scan(void)
             uint8_t dummy_read;
             ret = i2c_master_receive(dev_handle, &dummy_read, 1, 50);
             if (ret == ESP_OK) {
+                found_addresses[found_count] = addr;
+                found_types[found_count] = "read";
                 ESP_LOGI(TAG, "Found device at address 0x%02X (responded to read)", addr);
                 found_count++;
             }
@@ -345,9 +353,34 @@ esp_err_t i2c_bus_scan(void)
         i2c_master_bus_rm_device(dev_handle);
     }
 
+    // Print summary
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "I2C Bus Scan Summary:");
+    ESP_LOGI(TAG, "  Total devices found: %d", found_count);
     if (found_count > 0) {
-        ESP_LOGI(TAG, "Found %d device(s) on I2C bus", found_count);
+        ESP_LOGI(TAG, "  Addresses:");
+        for (int i = 0; i < found_count; i++) {
+            // Try to identify known devices
+            const char* device_name = "Unknown";
+#ifdef CONFIG_ENABLE_HV_SUPPORT
+            if (found_addresses[i] == HV_ADC_I2C_ADDR_DEFAULT) {
+                device_name = "HV ADC (ADS112C04)";
+            }
+#endif
+#ifdef CONFIG_ENABLE_SPL06
+            if (found_addresses[i] == CONFIG_SPL06_I2C_ADDRESS) {
+                device_name = "SPL06-001";
+            }
+#endif
+            ESP_LOGI(TAG, "    0x%02X - %s (responded to %s)", 
+                     found_addresses[i], device_name, found_types[i]);
+        }
+    } else {
+        ESP_LOGW(TAG, "  No devices found on I2C bus");
+        ESP_LOGW(TAG, "  Check connections: SDA=GPIO%d, SCL=GPIO%d", 
+                 I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO);
     }
+    ESP_LOGI(TAG, "========================================");
 
     return ESP_OK;
 }
