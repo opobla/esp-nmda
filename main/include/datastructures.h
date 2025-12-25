@@ -21,6 +21,7 @@ struct telemetry_message {
         struct  {
             uint8_t integration_time_sec;
             uint32_t channel[3];
+            int64_t start_timestamp;  // Timestamp de inicio del intervalo (microsegundos Unix)
         } tm_pcnt;
         struct {
             uint32_t channel[3];
