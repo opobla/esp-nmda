@@ -134,6 +134,14 @@ config SPL06_STATION_ALTITUDE_M
         QNH = P + (H/27) where P is pressure in hPa and H is altitude in meters.
         Default: 0 (sea level)
 
+config SPL06_PUBLISH_PERIOD_SEC
+    int "SPL06 publish period (seconds)"
+    default 60
+    depends on ENABLE_SPL06
+    help
+        Period between SPL06 sensor readings and MQTT publications in seconds.
+        Default: 60 seconds (1 minute)
+
 config ENABLE_USER_LED
     bool "Enable User LED support"
     default y

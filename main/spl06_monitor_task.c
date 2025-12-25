@@ -8,8 +8,6 @@
 #include "sdkconfig.h"
 #include <sys/time.h>
 
-#define SPL06_MONITOR_RATE_HZ 1.0f  // Default: 1 Hz
-
 /**
  * @brief Calculate QNH (pressure reduced to sea level) using AEMET formula
  * 
@@ -41,9 +39,12 @@ void spl06_monitor_task(void *parameters)
     
     // Get station altitude from configuration
     int station_altitude_m = CONFIG_SPL06_STATION_ALTITUDE_M;
+    
+    // Get publish period from configuration (in seconds)
+    int publish_period_sec = CONFIG_SPL06_PUBLISH_PERIOD_SEC;
 
     TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t period_ms = (TickType_t)(1000.0f / SPL06_MONITOR_RATE_HZ);
+    const TickType_t period_ms = (TickType_t)(publish_period_sec * 1000);
 
     while (true) {
         esp_err_t ret = spl06_read_both(&pressure_pa, &temperature_celsius);
