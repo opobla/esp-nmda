@@ -20,7 +20,6 @@ void mss_sender(void *parameters);
 
 //PULSE
 void task_pcnt(void *parameters);
-void task_detection(void *parameters);
 
 //SPL06
 #ifdef CONFIG_ENABLE_SPL06
