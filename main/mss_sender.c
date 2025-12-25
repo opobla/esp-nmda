@@ -89,11 +89,12 @@ void mss_sender(void *parameters) {
 
 #ifdef CONFIG_ENABLE_SPL06
             case TM_SPL06:
-                sprintf(buffer, "{ \"datetime\": \"%lld\", \"pressure_pa\": \"%.2f\", \"pressure_hpa\": \"%.2f\", \"temperature_celsius\": \"%.2f\" }",
+                sprintf(buffer, "{ \"datetime\": \"%lld\", \"pressure_pa\": \"%.2f\", \"pressure_hpa\": \"%.2f\", \"temperature_celsius\": \"%.2f\", \"qnh_hpa\": \"%.2f\" }",
                     message.timestamp,
                     message.payload.tm_spl06.pressure_pa,
                     message.payload.tm_spl06.pressure_hpa,
-                    message.payload.tm_spl06.temperature_celsius
+                    message.payload.tm_spl06.temperature_celsius,
+                    message.payload.tm_spl06.qnh_hpa
                 );
                 ESP_LOGI(TAG, "Publishing SPL06 on %s", topic_spl06);
                 mqtt_send_mss(topic_spl06, buffer);

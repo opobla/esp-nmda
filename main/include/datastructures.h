@@ -33,6 +33,7 @@ struct telemetry_message {
             float pressure_pa;          // Presión en Pascales
             float pressure_hpa;         // Presión en hectopascales (para compatibilidad)
             float temperature_celsius;  // Temperatura en grados Celsius
+            float qnh_hpa;              // QNH (presión reducida al nivel del mar) en hPa (fórmula AEMET)
         } tm_spl06;
 #endif
   } payload;
