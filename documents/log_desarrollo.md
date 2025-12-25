@@ -1,5 +1,86 @@
 # Log de Desarrollo
 
+## 2024-12-24 - Corrección crítica: TMP_EXT y factores de escala SPL06-001
+
+### Cambios realizados
+
+- **Archivo modificado**: `main/spl06.c` - Correcciones críticas en configuración y cálculos
+
+### Problema identificado
+
+Los valores raw de temperatura eran ~6.4 millones (ej: 6402130) cuando deberían ser ~1-3 millones.
+Esto causaba lecturas de temperatura completamente erróneas.
+
+**Dos problemas críticos encontrados:**
+
+1. **TMP_EXT = 0 (sensor interno ASIC)**: 
+   - El código configuraba `TMP_CFG = 0x24`, que usa el sensor de temperatura interno ASIC
+   - **Los coeficientes de calibración están basados en el sensor MEMS externo**
+   - Usar el sensor interno con calibración para el externo da valores incorrectos
+
+2. **Factores de escala incorrectos**:
+   - El código usaba `kP = 253952` y `kT = 524288`
+   - Para 8x oversampling, los factores correctos según datasheet son `kP = kT = 7864320`
+
+### Correcciones implementadas
+
+**Configuración de registros:**
+- `PRS_CFG`: Cambiado de `0x24` a `0x23` (8x oversampling correcto)
+- `TMP_CFG`: Cambiado de `0x24` a `0xA3` (TMP_EXT=1 para sensor MEMS externo)
+
+**Factores de escala:**
+- Cambiado `kP` de 253952 a 7864320
+- Cambiado `kT` de 524288 a 7864320
+
+**Fórmulas verificadas** (del datasheet):
+- Temperatura: `T = c0 * 0.5 + c1 * Traw_sc` donde `Traw_sc = raw / kT`
+- Presión: Fórmula completa con c00, c10, c20, c30, c01, c11, c21
+
+### Resultado esperado
+
+Con sensor MEMS externo y factores de escala correctos para 8x oversampling,
+las lecturas de temperatura y presión deberían ser correctas.
+
+---
+
+## 2024 - Mejoras en implementación SPL06-001
+
+### Cambios realizados
+
+- **Archivo modificado**: `main/spl06.c` - Corrección crítica y mejoras
+- **Archivo creado**: `documents/ANALYSIS_SPL06.md` - Análisis en profundidad
+
+### Detalles técnicos
+
+Se han implementado mejoras críticas en el driver del sensor SPL06-001 para resolver el problema de lectura de temperatura incorrecta:
+
+**Corrección crítica - Lectura atómica de temperatura**:
+- **Problema identificado**: La función `spl06_read_raw_temperature()` leía los 3 bytes de temperatura individualmente, lo que podía causar lectura de bytes de diferentes mediciones si el sensor actualizaba los registros entre lecturas.
+- **Solución implementada**: Cambio a lectura atómica de los 3 bytes en una sola transacción I2C, igual que se hace para la presión (que funcionaba correctamente).
+- **Impacto**: Esta corrección debería resolver el problema de valores de temperatura incorrectos (~-2967°C).
+
+**Mejoras adicionales**:
+1. **Validación de rangos mejorada**: Añadida validación de valores raw antes de procesarlos, retornando error si están fuera de rango esperado.
+2. **Reducción de logging**: Cambiado logging excesivo de `ESP_LOGI` a `ESP_LOGD` para reducir ruido en producción.
+3. **Manejo de errores mejorado**: Validación de valores raw en todas las funciones de lectura (presión, temperatura, ambas).
+
+**Compatibilidad I2C verificada**:
+- ✅ El SPL06 ya estaba correctamente integrado con el sistema I2C compartido
+- ✅ Usa handles persistentes creados en `i2c_bus_init()`
+- ✅ Sigue el mismo patrón que el HV ADC
+- ✅ Thread-safe con mutex
+- ✅ Garantiza Repeated Start cuando es necesario
+
+**Análisis completo**:
+Se ha creado un documento de análisis en profundidad (`documents/ANALYSIS_SPL06.md`) que incluye:
+- Análisis de la arquitectura I2C compartida
+- Comparación con el patrón del HV ADC
+- Identificación de problemas y causas raíz
+- Propuestas de mejora implementadas
+- Plan de acción para futuras mejoras
+
+**Resultado esperado**: La lectura de temperatura debería funcionar correctamente después de esta corrección, ya que ahora lee los 3 bytes de forma atómica, igual que la presión que ya funcionaba.
+
 ## 2024 - Módulo User LED para indicación de estado del sistema
 
 ### Cambios realizados
