@@ -190,4 +190,77 @@ config USER_LED_PAUSE_BETWEEN_CYCLES_MS
         Pause duration between complete pattern cycles in milliseconds.
         Default: 2000ms (2 seconds)
 
+config ENABLE_GPIO_PULSE_DETECTION
+    bool "Enable GPIO interrupt-based pulse detection"
+    default y
+    help
+        Enable pulse detection using GPIO interrupts.
+        This captures pulse events with timestamp when any edge is detected.
+        When disabled, GPIO interrupt detection code will be excluded from compilation.
+        Note: This can be used together with RMT pulse detection or independently.
+
+config ENABLE_RMT_PULSE_DETECTION
+    bool "Enable RMT-based pulse capture and analysis"
+    default n
+    help
+        Enable pulse capture using RMT (Remote Control) peripheral.
+        This provides high-resolution timing (12.5ns) for pulse duration and separation measurements.
+        Includes coincidence detection (2 and 3 channels) and multiplicity detection.
+        When disabled, all RMT-related code will be excluded from compilation.
+
+config RMT_COINCIDENCE_TOLERANCE_US
+    int "Coincidence detection tolerance window (microseconds)"
+    default 10
+    range 1 1000
+    depends on ENABLE_RMT_PULSE_DETECTION
+    help
+        Time window in microseconds for detecting coincidences between channels.
+        Pulses from different channels within this window are considered coincident.
+        Default: 10 microseconds
+        Range: 1-1000 microseconds
+
+config RMT_MULTIPLICITY_THRESHOLD_US
+    int "Multiplicity detection threshold (microseconds)"
+    default 100
+    range 1 10000
+    depends on ENABLE_RMT_PULSE_DETECTION
+    help
+        Maximum separation time in microseconds for pulses to be considered part of a multiplicity group.
+        Pulses on the same channel with separation less than this threshold are grouped together.
+        Default: 100 microseconds
+        Range: 1-10000 microseconds
+
+config RMT_EVENT_BUFFER_SIZE
+    int "RMT event buffer size per channel"
+    default 100
+    range 10 1000
+    depends on ENABLE_RMT_PULSE_DETECTION
+    help
+        Size of the circular buffer for storing pulse events per channel.
+        Larger buffers can handle higher event rates but consume more memory.
+        Default: 100 events per channel
+        Range: 10-1000 events
+
+config RMT_GLITCH_FILTER_NS
+    int "RMT glitch filter (nanoseconds)"
+    default 1300
+    range 0 10000
+    depends on ENABLE_RMT_PULSE_DETECTION
+    help
+        Glitch filter duration in nanoseconds to filter out noise spikes.
+        Pulses shorter than this duration will be filtered out.
+        Default: 1300ns (~1.3μs)
+        Range: 0-10000 nanoseconds (0 = disabled)
+
+config RMT_RX_TIMEOUT_US
+    int "RMT RX timeout for pulse end detection (microseconds)"
+    default 1000
+    range 10 10000
+    depends on ENABLE_RMT_PULSE_DETECTION
+    help
+        Timeout in microseconds to detect the end of a pulse.
+        If no edge is detected within this time, the pulse is considered ended.
+        Default: 1000 microseconds (1ms)
+        Range: 10-10000 microseconds
+
 endmenu
