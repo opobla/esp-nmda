@@ -27,7 +27,9 @@ static bool i2c_initialized = false;
 
 // Persistent device handles (created once, reused for all transactions)
 // This eliminates overhead of creating/deleting handles and may help with Repeated Start
+#ifdef CONFIG_ENABLE_HV_SUPPORT
 static i2c_master_dev_handle_t i2c_adc_handle = NULL;      // ADS112C04 at HV_ADC_I2C_ADDR_DEFAULT
+#endif
 #ifdef CONFIG_ENABLE_SPL06
 static i2c_master_dev_handle_t i2c_spl06_handle = NULL;    // SPL06 at CONFIG_SPL06_I2C_ADDRESS
 #endif

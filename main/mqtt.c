@@ -110,8 +110,30 @@ void mqtt_send_mss(char* topic, char* mss) {
         return;
     }
     
+    // Validate pointers before using (avoid calling strlen on NULL)
+    if (topic == NULL) {
+        ESP_LOGE("MQTT", "Cannot publish: topic is NULL");
+        return;
+    }
+    
+    if (mss == NULL) {
+        ESP_LOGE("MQTT", "Cannot publish: message is NULL");
+        return;
+    }
+    
+    // Additional safety: check that strings are not empty and are valid
+    // esp_mqtt_client_publish internally calls strlen, which will panic on NULL
+    if (topic[0] == '\0') {
+        ESP_LOGE("MQTT", "Cannot publish: topic is empty string");
+        return;
+    }
+    
+    if (mss[0] == '\0') {
+        ESP_LOGW("MQTT", "Warning: message is empty string, publishing anyway");
+    }
+    
     int msg_id = esp_mqtt_client_publish(client, topic, mss, 0, 0, false);
     if (msg_id < 0) {
-        ESP_LOGE("MQTT", "Failed to publish message to %s (error: %d)", topic, msg_id);
+        ESP_LOGE("MQTT", "Failed to publish message to %s (error: %d)", topic ? topic : "(null)", msg_id);
     }
 }

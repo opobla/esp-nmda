@@ -78,7 +78,9 @@ void spl06_monitor_task(void *parameters)
             ESP_LOGI("SPL06_MONITOR", "========================================");
 
             // Send to telemetry queue
-            if (xQueueSend(telemetry_queue, &message, 0) != pdTRUE) {
+            if (telemetry_queue == NULL) {
+                ESP_LOGE("SPL06_MONITOR", "Telemetry queue is NULL!");
+            } else if (xQueueSend(telemetry_queue, &message, 0) != pdTRUE) {
                 ESP_LOGW("SPL06_MONITOR", "Failed to send message to telemetry queue");
             } else {
                 ESP_LOGI("SPL06_MONITOR", "Message sent to telemetry queue");

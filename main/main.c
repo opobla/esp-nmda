@@ -27,6 +27,10 @@
 #include "hv_adc.h"
 #endif
 
+#ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
+#include "rmt_pulse_capture.h"
+#endif
+
 QueueHandle_t telemetry_queue;
 SemaphoreHandle_t wifi_semaphore;
 SemaphoreHandle_t sntp_semaphore;
@@ -56,7 +60,21 @@ void app_main(void)
     }
 
     // Create telemetry queue and semaphores
+    // Note: struct telemetry_message now uses dynamic allocation for RMT pulse arrays
+    // Size: base structure + pointer (8 bytes) = ~25 bytes per message
+    // The actual pulse arrays are allocated separately and freed after processing
     telemetry_queue = xQueueCreate(100, sizeof(struct telemetry_message));
+    if (telemetry_queue == NULL) {
+        ESP_LOGE("APP_MAIN", "Failed to create telemetry queue - insufficient memory!");
+        ESP_LOGE("APP_MAIN", "Required size: %zu bytes per message, %zu bytes total", 
+                 sizeof(struct telemetry_message), 
+                 100 * sizeof(struct telemetry_message));
+        esp_restart();
+    } else {
+        ESP_LOGI("APP_MAIN", "Telemetry queue created: %zu bytes per message, %zu bytes total", 
+                 sizeof(struct telemetry_message), 
+                 100 * sizeof(struct telemetry_message));
+    }
     wifi_semaphore = xSemaphoreCreateBinary();
     sntp_semaphore = xSemaphoreCreateBinary();
     mqtt_semaphore = xSemaphoreCreateBinary();
@@ -76,7 +94,7 @@ void app_main(void)
         esp_restart();
     }
 
-    // Initialize GPIO
+    // Initialize GPIO (required for PCNT, optional for interrupt detection)
     init_GPIO();
 
 #ifdef CONFIG_ENABLE_I2C_BUS
@@ -114,5 +132,20 @@ void app_main(void)
 
     // Start MQTT sender and other tasks
     xTaskCreatePinnedToCore(&mss_sender, "Send message", 1024 * 6, &nmda_config, 5, NULL, 0);
-    xTaskCreatePinnedToCore(&task_pcnt, "Pulse counter", 1024 * 3, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(&task_pcnt, "Pulse counter", 1024 * 8, NULL, 1, NULL, 1);
+
+#ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
+    // Initialize RMT pulse capture
+    esp_err_t rmt_ret = rmt_pulse_capture_init();
+    if (rmt_ret == ESP_OK) {
+        BaseType_t task_ret = xTaskCreatePinnedToCore(&task_rmt_event_processor, "RMT Event Processor", 4096, NULL, 3, NULL, 1);
+        if (task_ret != pdPASS) {
+            ESP_LOGE("APP_MAIN", "Failed to create RMT event processor task");
+        } else {
+            ESP_LOGI("APP_MAIN", "RMT pulse capture initialized and task created");
+        }
+    } else {
+        ESP_LOGE("APP_MAIN", "RMT pulse capture initialization failed: %s", esp_err_to_name(rmt_ret));
+    }
+#endif
 }

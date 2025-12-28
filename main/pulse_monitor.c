@@ -284,7 +284,10 @@ void task_pcnt(void *parameters) {
     
     // Reconfigurar interrupciones GPIO después de inicializar PCNT
     // (PCNT puede haber sobrescrito la configuración GPIO)
+    // Solo si la detección por GPIO está habilitada
+#ifdef CONFIG_ENABLE_GPIO_PULSE_DETECTION
     reconfigure_GPIO_interrupts();
+#endif
 
     // Esperar hasta el primer segundo alineado y descartar el primer conteo
     int next_aligned = 0;

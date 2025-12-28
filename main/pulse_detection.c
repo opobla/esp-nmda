@@ -2,6 +2,7 @@
 #include "esp_timer.h"
 #include "driver/gpio.h"
 
+#ifdef CONFIG_ENABLE_GPIO_PULSE_DETECTION
 
 void IRAM_ATTR detection_isr_handler(void* arg) {
     struct telemetry_message message;
@@ -53,3 +54,19 @@ void reconfigure_GPIO_interrupts(void) {
     
     ESP_LOGI("PULSE_DETECTION", "GPIO interrupts reconfigured");
 }
+
+#else // CONFIG_ENABLE_GPIO_PULSE_DETECTION
+
+// Stub functions when GPIO pulse detection is disabled
+void init_GPIO() {
+    // Configure GPIO pins as inputs (for PCNT compatibility)
+    gpio_set_direction(PIN_PULSE_IN_CH1, GPIO_MODE_INPUT);
+    gpio_set_direction(PIN_PULSE_IN_CH2, GPIO_MODE_INPUT);
+    gpio_set_direction(PIN_PULSE_IN_CH3, GPIO_MODE_INPUT);
+}
+
+void reconfigure_GPIO_interrupts(void) {
+    // No-op when GPIO pulse detection is disabled
+}
+
+#endif // CONFIG_ENABLE_GPIO_PULSE_DETECTION
