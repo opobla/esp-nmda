@@ -20,6 +20,9 @@ void mss_sender(void *parameters);
 
 //PULSE
 void task_pcnt(void *parameters);
+#ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
+void task_rmt_event_processor(void *parameters);
+#endif
 
 //SPL06
 #ifdef CONFIG_ENABLE_SPL06
@@ -32,7 +35,9 @@ void hv_adc_monitor_task(void *parameters);
 
 //SET UP
 void init_GPIO(void);
+#ifdef CONFIG_ENABLE_GPIO_PULSE_DETECTION
 void reconfigure_GPIO_interrupts(void);
+#endif
 
 //QUEUE
 extern QueueHandle_t telemetry_queue;
