@@ -20,11 +20,11 @@ void mss_sender(void *parameters) {
     char topic_detect[80 + strlen("detect") + 1];
 #endif
 #ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
-    char topic_rmt_pulse[80 + strlen("rmt_pulse") + 1];
+    char topic_pburst[80 + strlen("pburst") + 1];
 #endif
     char topic_timesync[80 + strlen("timesync") + 1];
 #ifdef CONFIG_ENABLE_SPL06
-    char topic_spl06[80 + strlen("spl06") + 1];
+    char topic_meteo[80 + strlen("meteo") + 1];
 #endif
     char* station = nmda_config->mqtt_station;
     char* experiment = nmda_config->mqtt_experiment;
@@ -44,11 +44,11 @@ void mss_sender(void *parameters) {
     sprintf(topic_detect, "%s/detect", topic_base);
 #endif
 #ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
-    sprintf(topic_rmt_pulse, "%s/rmt_pulse", topic_base);
+    sprintf(topic_pburst, "%s/pburst", topic_base);
 #endif
     sprintf(topic_timesync, "%s/timesync", topic_base);
 #ifdef CONFIG_ENABLE_SPL06
-    sprintf(topic_spl06, "%s/spl06", topic_base);
+    sprintf(topic_meteo, "%s/meteo", topic_base);
 #endif
 
 	ESP_LOGI(TAG, "Topic base: %s", topic_base);
@@ -192,9 +192,9 @@ void mss_sender(void *parameters) {
                         break;
                     }
                     
-                    // Validate topic is not empty (topic_rmt_pulse is an array, not a pointer)
-                    if (topic_rmt_pulse[0] == '\0') {
-                        ESP_LOGE(TAG, "RMT topic is empty, not sending");
+                    // Validate topic is not empty (topic_pburst is an array, not a pointer)
+                    if (topic_pburst[0] == '\0') {
+                        ESP_LOGE(TAG, "Pburst topic is empty, not sending");
                         // Free pulses array
                         heap_caps_free(message.payload.tm_rmt_pulse_event.pulses);
                         break;
@@ -264,7 +264,7 @@ void mss_sender(void *parameters) {
                     }
                     
                     // Send via MQTT
-                    mqtt_send_mss(topic_rmt_pulse, json_string);
+                    mqtt_send_mss(topic_pburst, json_string);
                     
                     // Free JSON string and object
                     free(json_string);
@@ -343,9 +343,9 @@ void mss_sender(void *parameters) {
                         break;
                     }
                     
-                    ESP_LOGI(TAG, "Publishing SPL06 on %s", topic_spl06);
-                    mqtt_send_mss(topic_spl06, json_string);
-                    ESP_LOGI(TAG, "SPL06 message published successfully");
+                    ESP_LOGI(TAG, "Publishing METEO on %s", topic_meteo);
+                    mqtt_send_mss(topic_meteo, json_string);
+                    ESP_LOGI(TAG, "METEO message published successfully");
                     
                     free(json_string);
                     cJSON_Delete(json);
