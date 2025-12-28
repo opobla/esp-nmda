@@ -61,3 +61,5 @@ sdkconfig.old
 .DS_Store
 *.bin
 partitions/settings.*.csv
+.cache
+esp_idf_project_configuration.json
