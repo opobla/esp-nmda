@@ -201,7 +201,7 @@ esp_err_t load_settings_from_nvs(nmda_init_config_t* nmda_config) {
 
     // Load WiFi settings
     LOAD_AND_SET("wifi_ssid", wifi_essid);
-    LOAD_AND_SET("wifi_pasword", wifi_password);
+    LOAD_AND_SET("wifi_password", wifi_password);
     LOAD_AND_SET("wifi_ntp_server", wifi_ntp_server);
 
     // Load MQTT settings
