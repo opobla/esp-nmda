@@ -1,5 +1,83 @@
 # Log de Desarrollo
 
+## 2024-12-XX - Implementación Fases 1 y 2: Sistema RMT de captura de pulsos (base)
+
+### Cambios realizados
+
+**Rama creada**: `feature/rmt-pulse-capture`
+
+**Fase 1: Configuración Kconfig y estructura base**
+- **Archivo modificado**: `main/Kconfig.projbuild`
+  - Añadida opción `ENABLE_GPIO_PULSE_DETECTION` (bool, default y)
+  - Añadida opción `ENABLE_RMT_PULSE_DETECTION` (bool, default n)
+  - Añadidas opciones de configuración RMT:
+    - `RMT_COINCIDENCE_TOLERANCE_US` (int, default 10, range 1-1000)
+    - `RMT_MULTIPLICITY_THRESHOLD_US` (int, default 100, range 1-10000)
+    - `RMT_EVENT_BUFFER_SIZE` (int, default 100, range 10-1000)
+    - `RMT_GLITCH_FILTER_NS` (int, default 1300, range 0-10000)
+    - `RMT_RX_TIMEOUT_US` (int, default 1000, range 10-10000)
+
+- **Archivo modificado**: `main/include/datastructures.h`
+  - Añadidos nuevos tipos de mensaje:
+    - `TM_RMT_PULSE_EVENT` (7)
+    - `TM_RMT_COINCIDENCE` (8)
+    - `TM_RMT_MULTIPLICITY` (9)
+  - Añadidas estructuras de datos:
+    - `tm_rmt_pulse_event`: evento individual de pulso (channel, duration_us, separation_us)
+    - `tm_rmt_coincidence`: coincidencia detectada (type, num_channels, channels[], durations[], separations[])
+    - `tm_rmt_multiplicity`: multiplicidad detectada (channel, count, max_separation_us, total_duration_us)
+
+- **Archivo creado**: `main/include/rmt_pulse_capture.h`
+  - Header para captura RMT con estructuras y funciones públicas
+  - Define tipos de coincidencia (COINC_2_CH01, COINC_2_CH12, COINC_2_CH02, COINC_3)
+
+- **Archivo creado**: `main/include/pulse_coincidence.h`
+  - Header para detector de coincidencias y multiplicidades
+  - Funciones de inicialización, procesamiento y estadísticas
+
+**Fase 2: Refactorización de GPIO interrupts (hacer opcional)**
+- **Archivo modificado**: `main/pulse_detection.c`
+  - Todo el código envuelto con `#ifdef CONFIG_ENABLE_GPIO_PULSE_DETECTION`
+  - Añadidas funciones stub cuando GPIO está desactivado (para compatibilidad con PCNT)
+
+- **Archivo modificado**: `main/main.c`
+  - `init_GPIO()` se llama siempre (necesario para PCNT), pero solo configura interrupciones si está habilitado
+
+- **Archivo modificado**: `main/pulse_monitor.c`
+  - `reconfigure_GPIO_interrupts()` solo se llama si `CONFIG_ENABLE_GPIO_PULSE_DETECTION` está activado
+
+- **Archivo modificado**: `main/mss_sender.c`
+  - Case `TM_PULSE_DETECTION` envuelto con `#ifdef CONFIG_ENABLE_GPIO_PULSE_DETECTION`
+  - Variable `last_event_time` condicional
+  - Variable `topic_detect` condicional
+
+- **Archivo modificado**: `main/include/common.h`
+  - Declaración de `reconfigure_GPIO_interrupts()` condicional
+
+### Detalles técnicos
+
+**Objetivo**: Preparar la base para implementar captura RMT mientras se mantiene la funcionalidad existente de GPIO interrupts como opcional.
+
+**Compatibilidad**:
+- El sistema PCNT sigue funcionando independientemente
+- GPIO interrupts puede activarse/desactivarse sin afectar PCNT
+- RMT puede activarse independientemente (implementación en fases siguientes)
+
+**Estado actual**:
+- ✅ Fase 1 completada: Configuración y estructura base lista
+- ✅ Fase 2 completada: GPIO interrupts ahora es opcional
+- ⏳ Fase 3 pendiente: Implementación básica de RMT - captura de eventos
+- ⏳ Fase 4 pendiente: Procesamiento de eventos RMT - estadísticas básicas
+- ⏳ Fase 5 pendiente: Detección de coincidencias (2 y 3 canales)
+- ⏳ Fase 6 pendiente: Detección de multiplicidades
+- ⏳ Fase 7 pendiente: Optimización y ajustes finales
+
+**Próximos pasos**:
+- Implementar Fase 3: Captura básica de eventos usando RMT
+- Verificar compilación con diferentes combinaciones de opciones (GPIO on/off, RMT on/off)
+
+---
+
 ## 2024-12-24 - Corrección crítica: TMP_EXT y factores de escala SPL06-001
 
 ### Cambios realizados
