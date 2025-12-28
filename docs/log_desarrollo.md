@@ -284,3 +284,50 @@ Ahora solo se muestra un mensaje informativo cuando se encuentran dispositivos:
 
 **Nota**: Los mensajes de error del driver I2C (`i2c.master`) siguen apareciendo durante el escaneo, ya que es el comportamiento normal del driver al intentar comunicarse con direcciones que no tienen dispositivos conectados.
 
+## 2024-12-XX - Documentación completa del sistema PBURST
+
+### Cambios realizados
+
+- **Archivo creado**: `docs/PBURST_DOCUMENTATION.md` - Documentación técnica completa del sistema de captura de pulsos RMT
+
+### Detalles técnicos
+
+Se ha creado una documentación exhaustiva que cubre todos los aspectos del sistema PBURST:
+
+**Contenido de la documentación**:
+1. **Introducción**: Propósito, características principales y casos de uso
+2. **Arquitectura del Sistema**: Diagrama de componentes, estructuras de datos y flujo de información
+3. **Flujo de Datos**: Proceso completo desde captura hardware hasta publicación MQTT
+4. **Interpretación de Campos**: Explicación detallada de cada campo del mensaje JSON:
+   - `start_datetime`: Timestamp Unix con precisión de microsegundos
+   - `duration_us`: Duración del pulso en nivel HIGH
+   - `separation_us`: Periodo entre pulsos (start-to-start)
+   - `channel`: Identificador del canal físico
+   - `symbols`: Número de pulsos en el grupo
+5. **Precisiones y Limitaciones**: 
+   - Resolución temporal (500ns con 2MHz)
+   - Limitaciones de hardware (duración mínima/máxima, tamaño de grupo)
+   - Limitaciones de software (colas, memoria)
+6. **Configuraciones Disponibles**: 
+   - Configuraciones mediante `menuconfig` (glitch filter, timeout, etc.)
+   - Configuraciones hardcodeadas (resolución RMT, tamaño de buffer, etc.)
+   - Instrucciones para modificar cada configuración
+7. **Ejemplos con Diferentes Configuraciones**: 
+   - Pulsos rápidos (6μs, periodo 60μs)
+   - Pulsos largos (100μs, periodo 1ms)
+   - Pulsos muy cortos (2μs) con filtro ajustado
+   - Pulsos muy largos (5ms) con timeout aumentado
+   - Grupos grandes (20 pulsos)
+8. **Cómo Cambiar las Configuraciones**: 
+   - Instrucciones paso a paso para `menuconfig`
+   - Instrucciones para modificar código fuente
+9. **Troubleshooting**: 
+   - Problemas comunes y soluciones
+   - Diagnóstico de errores
+
+**Correcciones documentadas**:
+- Conversión de timestamps de boot time a Unix timestamp con precisión de microsegundos
+- Cálculo correcto de `separation_us` como periodo (start-to-start) en lugar de gap (end-to-start)
+- Explicación de la precisión de 0.5μs (resolución de 500ns redondeada)
+
+**Resultado**: Documentación completa que permite a usuarios y desarrolladores entender completamente el funcionamiento del sistema, interpretar correctamente los datos, y configurar el sistema según sus necesidades específicas.
