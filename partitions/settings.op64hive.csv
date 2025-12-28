@@ -2,12 +2,12 @@ key,type,encoding,value
 settings,namespace,,
 author,data,string,"Oscar Garcia"
 wifi_ssid,data,string,"Virus 24g"
-wifi_pasword,data,string,__TheManInTheRain..
+wifi_password,data,string,__TheManInTheRain..
 wifi_ntp_server,data,string,pool.ntp.org
 mqtt_host,data,string,5371caefb71440a79d905213da427579.s1.eu.hivemq.cloud
 mqtt_port,data,string,8883
-mqtt_user,data,string,tu_usuario_hivemq
-mqtt_password,data,string,tu_contraseña_hivemq
+mqtt_user,data,string,nmda-esp32
+mqtt_password,data,string,tKGw6uwb3XFK@mdZ
 mqtt_transport,data,string,mqtts
 mqtt_station,data,string,op64
 mqtt_experiment,data,string,cosmic_rays
