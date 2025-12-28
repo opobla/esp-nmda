@@ -11,6 +11,7 @@
 #include "driver/gpio.h"
 #include <string.h>
 #include <inttypes.h>
+#include <sys/time.h>
 
 #ifdef CONFIG_ENABLE_RMT_PULSE_DETECTION
 
@@ -108,7 +109,7 @@ static bool IRAM_ATTR rmt_rx_done_callback(rmt_channel_handle_t channel, const r
         
         // Process symbols in forward order (oldest first) for correct separation calculation
         int64_t current_time = first_symbol_start;
-        int64_t prev_pulse_end_time = 0;  // End time of previous pulse in this group
+        int64_t prev_pulse_start_time = 0;  // Start time of previous pulse in this group
         
         for (uint32_t i = 0; i < edata->num_symbols; i++) {
             rmt_symbol_word_t symbol = edata->received_symbols[i];
@@ -123,18 +124,21 @@ static bool IRAM_ATTR rmt_rx_done_callback(rmt_channel_handle_t channel, const r
                 // This symbol represents a pulse
                 int64_t pulse_start_time = current_time;
                 uint32_t duration_us = symbol_duration0_us;
-                int64_t pulse_end_time = pulse_start_time + duration_us + symbol_duration1_us;
+                // pulse_end_time is the end of the LOW period (start of next symbol/pulse)
+                int64_t pulse_end_time = current_time + symbol_total_duration_us;
                 
                 // Calculate separation from previous pulse
                 int64_t separation_us = -1;
                 if (group->num_pulses == 0) {
                     // First pulse in group: separation from last pulse of previous group
+                    // last_event_timestamp stores the start time of the last pulse
                     if (last_event_timestamp[channel_index] > 0) {
                         separation_us = pulse_start_time - last_event_timestamp[channel_index];
                     }
                 } else {
                     // Subsequent pulse: separation from previous pulse in this group
-                    separation_us = pulse_start_time - prev_pulse_end_time;
+                    // Separation is the period: time from start of previous pulse to start of this pulse
+                    separation_us = pulse_start_time - prev_pulse_start_time;
                 }
                 
                 // Store pulse in group
@@ -148,11 +152,13 @@ static bool IRAM_ATTR rmt_rx_done_callback(rmt_channel_handle_t channel, const r
                 }
                 
                 // Update for next pulse calculation
-                prev_pulse_end_time = pulse_end_time;
+                // Store start time of this pulse for next separation calculation
+                prev_pulse_start_time = pulse_start_time;
+                // Update last event timestamp to start of this pulse for inter-group separation
                 last_event_timestamp[channel_index] = pulse_start_time;
             }
             
-            // Move time forward
+            // Move time forward to start of next symbol
             current_time += symbol_total_duration_us;
         }
         
@@ -399,14 +405,24 @@ void task_rmt_event_processor(void *parameters)
             // Copy pulses from group to separate allocation
             memcpy(pulses_array, group->pulses, pulses_size);
             
+            // Convert timestamp from boot time to Unix timestamp (with microsecond precision)
+            // group->start_timestamp is in microseconds since boot
+            // We need to convert it to Unix timestamp in microseconds
+            struct timeval tv_now;
+            gettimeofday(&tv_now, NULL);
+            int64_t current_unix_time_us = (int64_t)tv_now.tv_sec * 1000000LL + (int64_t)tv_now.tv_usec;
+            int64_t current_boot_time_us = esp_timer_get_time();
+            // Calculate Unix timestamp: current_unix - (current_boot - event_boot)
+            int64_t unix_timestamp_us = current_unix_time_us - (current_boot_time_us - group->start_timestamp);
+            
             // Prepare telemetry message
             message.tm_message_type = TM_RMT_PULSE_EVENT;
-            message.timestamp = group->start_timestamp;
+            message.timestamp = unix_timestamp_us;
             
             // Convert channel index (0,1,2) to channel number (1,2,3)
             message.payload.tm_rmt_pulse_event.channel = group->channel_index + 1;  // ch1, ch2, ch3
             message.payload.tm_rmt_pulse_event.symbols = group->num_pulses;
-            message.payload.tm_rmt_pulse_event.start_timestamp = group->start_timestamp;
+            message.payload.tm_rmt_pulse_event.start_timestamp = unix_timestamp_us;  // Unix timestamp with microsecond precision
             message.payload.tm_rmt_pulse_event.pulses = pulses_array;  // Assign separate allocation
             
             // Save values needed for logging before freeing the group
